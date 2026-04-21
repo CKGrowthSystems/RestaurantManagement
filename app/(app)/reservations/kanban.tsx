@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { HiBtn, HiCard, HiIcon, HiPill, HiSource } from "@/components/primitives";
 import type { Reservation, ReservationStatus, TableRow } from "@/lib/types";
+import { ReservationEditModal } from "./edit-modal";
 
 const COLS: { key: ReservationStatus; tone: "warn" | "accent" | "success" | "neutral"; subtitle: string }[] = [
   { key: "Offen",         tone: "warn",    subtitle: "Bestätigung erforderlich" },
@@ -18,6 +19,7 @@ export function ReservationsKanban({
   const router = useRouter();
   const [items, setItems] = useState(initial);
   const [dragId, setDragId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Reservation | null>(null);
 
   function label(id: string | null) {
     if (!id) return "—";
@@ -102,9 +104,25 @@ export function ReservationsKanban({
                         : r.status === "Offen"
                         ? "color-mix(in oklch, var(--hi-accent) 30%, var(--hi-line))"
                         : "var(--hi-line)",
-                      cursor: "grab",
+                      cursor: "grab", position: "relative",
                     }}
                   >
+                    <button
+                      title="Reservierung bearbeiten"
+                      onClick={(e) => { e.stopPropagation(); setEditing(r); }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      style={{
+                        position: "absolute", top: 8, right: 8,
+                        width: 24, height: 24, borderRadius: 5,
+                        background: "rgba(255,255,255,0.06)",
+                        border: "1px solid var(--hi-line)",
+                        color: "var(--hi-muted-strong)",
+                        cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}
+                    >
+                      <HiIcon kind="edit" size={11} />
+                    </button>
                     {r.auto_assigned && r.status === "Offen" && r.approval_reason && (
                       <div style={{
                         padding: "4px 8px", borderRadius: 6, fontSize: 10.5,
@@ -169,6 +187,21 @@ export function ReservationsKanban({
           );
         })}
       </div>
+      {editing && (
+        <ReservationEditModal
+          reservation={editing}
+          tables={tables as any}
+          onClose={() => setEditing(null)}
+          onSaved={(next) => {
+            setItems((prev) => prev.map((r) => (r.id === next.id ? next : r)));
+            router.refresh();
+          }}
+          onDeleted={(id) => {
+            setItems((prev) => prev.map((r) => (r.id === id ? { ...r, status: "Storniert" } : r)));
+            router.refresh();
+          }}
+        />
+      )}
     </>
   );
 }

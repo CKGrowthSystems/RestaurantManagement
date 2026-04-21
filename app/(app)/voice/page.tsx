@@ -6,6 +6,7 @@ import { HiBtn, HiCard, HiIcon, HiPill } from "@/components/primitives";
 import type { VoiceCall } from "@/lib/types";
 import { CopyWebhookUrl } from "./copy-url";
 import { IntegrationWizard } from "./integration-wizard";
+import { PasswordGate } from "./password-gate";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,7 @@ export default async function VoicePage() {
   const latest = callList[0] ?? null;
 
   return (
+    <PasswordGate>
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
       <Topbar
         title="Voice-KI Agent"
@@ -204,6 +206,7 @@ export default async function VoicePage() {
         </aside>
       </div>
     </div>
+    </PasswordGate>
   );
 }
 

@@ -64,15 +64,12 @@ export function Sidebar({
             <Link
               key={n.id}
               href={n.href}
-              style={{
-                display: "flex", alignItems: "center", gap: 10,
-                padding: "8px 10px", borderRadius: 7,
-                fontSize: 13, fontWeight: 500,
-                color: active ? "var(--hi-ink)" : "var(--hi-muted-strong)",
-                background: active ? "var(--hi-surface-raised)" : "transparent",
-              }}
+              className={`hi-nav-link${active ? " is-active" : ""}`}
+              aria-current={active ? "page" : undefined}
             >
-              <HiIcon kind={n.icon} size={15} />
+              <span className="hi-nav-icon" style={{ display: "inline-flex" }}>
+                <HiIcon kind={n.icon} size={15} />
+              </span>
               <span style={{ flex: 1 }}>{n.label}</span>
               {badge && badge.n > 0 && (
                 <span

@@ -2,7 +2,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HiBtn, HiIcon, HiPill, HiSource, HiTable, type TableStatus } from "@/components/primitives";
-import type { Floor, Reservation, TableRow, Zone } from "@/lib/types";
+import type { Floor, Reservation, RoomPoint, TableRow, Zone } from "@/lib/types";
 
 function statusForTable(tableId: string, rs: Reservation[], now: Date): { status: TableStatus; countdown: string | null } {
   const nowMs = now.getTime();
@@ -23,9 +23,13 @@ function statusForTable(tableId: string, rs: Reservation[], now: Date): { status
 }
 
 interface Layout {
-  room: { width: number; height: number; entrance_x: number; entrance_y: number; entrance_w: number; entrance_h: number };
+  room: {
+    width: number; height: number;
+    entrance_x: number; entrance_y: number; entrance_w: number; entrance_h: number;
+    polygon: RoomPoint[] | null;
+  };
   zones: Record<string, { bbox_x: number; bbox_y: number; bbox_w: number; bbox_h: number }>;
-  tables: Record<string, { pos_x: number; pos_y: number; zone_id: string | null }>;
+  tables: Record<string, { pos_x: number; pos_y: number; zone_id: string | null; rotation: number }>;
 }
 
 type DragMode =
@@ -33,7 +37,11 @@ type DragMode =
   | { type: "zone-move";     id: string; offsetX: number; offsetY: number }
   | { type: "zone-resize";   id: string; corner: "nw" | "ne" | "sw" | "se"; startX: number; startY: number; start: { x: number; y: number; w: number; h: number } }
   | { type: "entrance";      offsetX: number; offsetY: number }
-  | { type: "room-resize";   startX: number; startY: number; startW: number; startH: number };
+  | { type: "room-resize";   startX: number; startY: number; startW: number; startH: number }
+  | { type: "polygon-vertex"; index: number };
+
+/** Snap a coordinate to an 8-px grid in edit mode. */
+function snap(n: number): number { return Math.round(n / 8) * 8; }
 
 export function FloorplanClient({
   floors: initialFloors, tables, zones, reservations,
@@ -66,9 +74,10 @@ export function FloorplanClient({
       entrance_y: activeFloor?.entrance_y ?? 440,
       entrance_w: activeFloor?.entrance_w ?? 60,
       entrance_h: activeFloor?.entrance_h ?? 20,
+      polygon: activeFloor?.room_polygon ?? null,
     },
     zones: Object.fromEntries(floorZones.map((z) => [z.id, { bbox_x: z.bbox_x, bbox_y: z.bbox_y, bbox_w: z.bbox_w, bbox_h: z.bbox_h }])),
-    tables: Object.fromEntries(floorTables.map((t) => [t.id, { pos_x: t.pos_x, pos_y: t.pos_y, zone_id: t.zone_id }])),
+    tables: Object.fromEntries(floorTables.map((t) => [t.id, { pos_x: t.pos_x, pos_y: t.pos_y, zone_id: t.zone_id, rotation: t.rotation ?? 0 }])),
   });
   const [layout, setLayout] = useState<Layout>(buildLayout);
   useEffect(() => { setLayout(buildLayout()); setSelected(floorTables[0]?.id ?? null); }, [activeFloorId]);
@@ -122,6 +131,7 @@ export function FloorplanClient({
         next.tables = {
           ...next.tables,
           [drag.id]: {
+            ...cur,
             zone_id: zoneId,
             pos_x: zone ? Math.max(20, Math.min(zone.bbox_w - 20, tableX - zone.bbox_x)) : tableX,
             pos_y: zone ? Math.max(20, Math.min(zone.bbox_h - 20, tableY - zone.bbox_y)) : tableY,
@@ -146,6 +156,12 @@ export function FloorplanClient({
       } else if (drag.type === "room-resize") {
         const dx = p.x - drag.startX, dy = p.y - drag.startY;
         next.room = { ...next.room, width: Math.max(400, drag.startW + dx), height: Math.max(300, drag.startH + dy) };
+      } else if (drag.type === "polygon-vertex" && next.room.polygon) {
+        const poly = next.room.polygon.slice();
+        const sx = snap(Math.max(0, Math.min(next.room.width, p.x)));
+        const sy = snap(Math.max(0, Math.min(next.room.height, p.y)));
+        poly[drag.index] = { x: sx, y: sy };
+        next.room = { ...next.room, polygon: poly };
       }
       return next;
     });
@@ -160,7 +176,15 @@ export function FloorplanClient({
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         floor_id: activeFloorId,
-        room: layout.room,
+        room: {
+          width: layout.room.width,
+          height: layout.room.height,
+          entrance_x: layout.room.entrance_x,
+          entrance_y: layout.room.entrance_y,
+          entrance_w: layout.room.entrance_w,
+          entrance_h: layout.room.entrance_h,
+          room_polygon: layout.room.polygon,
+        },
         zones: Object.entries(layout.zones).map(([id, z]) => ({ id, ...z })),
         tables: Object.entries(layout.tables).map(([id, t]) => ({ id, ...t })),
       }),
@@ -169,6 +193,50 @@ export function FloorplanClient({
     router.refresh();
   }
   function cancel() { setLayout(buildLayout()); setEditMode(false); }
+
+  function setTableRotation(id: string, delta: number) {
+    setLayout((prev) => {
+      const cur = prev.tables[id]; if (!cur) return prev;
+      const next = { ...cur, rotation: ((cur.rotation + delta) % 360 + 360) % 360 };
+      return { ...prev, tables: { ...prev.tables, [id]: next } };
+    });
+  }
+
+  function initPolygonFromRect() {
+    setLayout((prev) => ({
+      ...prev,
+      room: {
+        ...prev.room,
+        polygon: [
+          { x: 0, y: 0 },
+          { x: prev.room.width, y: 0 },
+          { x: prev.room.width, y: prev.room.height },
+          { x: 0, y: prev.room.height },
+        ],
+      },
+    }));
+  }
+  function clearPolygon() {
+    setLayout((prev) => ({ ...prev, room: { ...prev.room, polygon: null } }));
+  }
+  function insertPolygonVertex(afterIndex: number) {
+    setLayout((prev) => {
+      const poly = prev.room.polygon; if (!poly) return prev;
+      const a = poly[afterIndex];
+      const b = poly[(afterIndex + 1) % poly.length];
+      const mid = { x: snap((a.x + b.x) / 2), y: snap((a.y + b.y) / 2) };
+      const next = [...poly];
+      next.splice(afterIndex + 1, 0, mid);
+      return { ...prev, room: { ...prev.room, polygon: next } };
+    });
+  }
+  function removePolygonVertex(index: number) {
+    setLayout((prev) => {
+      const poly = prev.room.polygon; if (!poly || poly.length <= 3) return prev;
+      const next = poly.filter((_, i) => i !== index);
+      return { ...prev, room: { ...prev.room, polygon: next } };
+    });
+  }
 
   async function addFloor() {
     const name = prompt("Name des neuen Raums, z. B. Obergeschoss:");
@@ -324,8 +392,48 @@ export function FloorplanClient({
               preserveAspectRatio="xMidYMid meet"
               style={{ position: "absolute", inset: 0 }}
             >
-              <rect x={0.5} y={0.5} width={width - 1} height={height - 1} rx={10}
-                    fill="none" stroke="var(--hi-line)" strokeWidth="1.2" strokeDasharray={editMode ? "4 3" : "0"} />
+              {layout.room.polygon && layout.room.polygon.length >= 3 ? (
+                <polygon
+                  points={layout.room.polygon.map((p) => `${p.x},${p.y}`).join(" ")}
+                  fill="rgba(255,255,255,0.01)"
+                  stroke="var(--hi-line)"
+                  strokeWidth="1.4"
+                  strokeDasharray={editMode ? "4 3" : "0"}
+                  strokeLinejoin="round"
+                />
+              ) : (
+                <rect x={0.5} y={0.5} width={width - 1} height={height - 1} rx={10}
+                      fill="none" stroke="var(--hi-line)" strokeWidth="1.2" strokeDasharray={editMode ? "4 3" : "0"} />
+              )}
+              {/* Polygon-vertex and edge-midpoint handles (edit mode only) */}
+              {editMode && layout.room.polygon && layout.room.polygon.map((pt, i) => {
+                const next = layout.room.polygon![(i + 1) % layout.room.polygon!.length];
+                const mid = { x: (pt.x + next.x) / 2, y: (pt.y + next.y) / 2 };
+                return (
+                  <g key={`poly-${i}`}>
+                    {/* Edge midpoint — click to insert a new vertex */}
+                    <circle
+                      cx={mid.x} cy={mid.y} r={6}
+                      fill="color-mix(in oklch, var(--hi-accent) 55%, transparent)"
+                      stroke="var(--hi-bg)" strokeWidth={1.5}
+                      style={{ cursor: "copy", opacity: 0.6 }}
+                      onClick={(e) => { e.stopPropagation(); insertPolygonVertex(i); }}
+                    />
+                    {/* Vertex handle — drag to move, double-click to remove */}
+                    <rect
+                      x={pt.x - 6} y={pt.y - 6} width={12} height={12} rx={2}
+                      fill="var(--hi-accent)" stroke="var(--hi-bg)" strokeWidth="1.5"
+                      style={{ cursor: "grab" }}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        (e.target as Element).setPointerCapture?.(e.pointerId);
+                        setDrag({ type: "polygon-vertex", index: i });
+                      }}
+                      onDoubleClick={(e) => { e.stopPropagation(); removePolygonVertex(i); }}
+                    />
+                  </g>
+                );
+              })}
               {floorZones.map((z) => {
                 const L = layout.zones[z.id]; if (!L) return null;
                 return (
@@ -442,8 +550,9 @@ export function FloorplanClient({
                     <HiTable
                       shape={t.shape} seats={t.seats} label={t.label}
                       status={status} size={unitSize} countdown={countdown}
-                      highlight={!editMode && selected === t.id}
-                      onClick={editMode ? undefined : () => setSelected(t.id)}
+                      rotation={(layout.tables[t.id]?.rotation ?? t.rotation) ?? 0}
+                      highlight={(editMode && selected === t.id) || (!editMode && selected === t.id)}
+                      onClick={editMode ? () => setSelected(t.id) : () => setSelected(t.id)}
                     />
                   </div>
                 </div>
@@ -454,15 +563,67 @@ export function FloorplanClient({
           {editMode && (
             <div style={{
               position: "absolute", top: 12, left: 12,
-              padding: "8px 12px", borderRadius: 8,
+              padding: "10px 14px", borderRadius: 10,
               background: "color-mix(in oklch, var(--hi-accent) 15%, var(--hi-surface))",
               border: "1px solid var(--hi-accent)",
-              fontSize: 11.5, color: "var(--hi-ink)", maxWidth: 360,
+              fontSize: 11.5, color: "var(--hi-ink)",
+              maxWidth: 400,
             }}>
-              <div style={{ fontWeight: 600, marginBottom: 2 }}>Plan bearbeiten</div>
-              <div style={{ color: "var(--hi-muted-strong)" }}>
-                Tische, Bereiche und Eingang ziehen · Eckpunkte zum Skalieren · rechts unten = Raumgröße
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>Plan bearbeiten</div>
+              <div style={{ color: "var(--hi-muted-strong)", lineHeight: 1.45 }}>
+                Tische, Bereiche und Eingang ziehen · Eckpunkte zum Skalieren · unten rechts = Raumgröße.
               </div>
+              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+                {!layout.room.polygon ? (
+                  <button onClick={initPolygonFromRect} style={miniBtnStyle}>
+                    <HiIcon kind="edit" size={11} /> Raum als Polygon
+                  </button>
+                ) : (
+                  <>
+                    <span style={{ ...miniBtnStyle, background: "color-mix(in oklch, var(--hi-accent) 25%, transparent)", borderColor: "var(--hi-accent)", color: "var(--hi-accent)" }}>
+                      Polygon · {layout.room.polygon.length} Punkte
+                    </span>
+                    <button onClick={clearPolygon} style={miniBtnStyle}>
+                      <HiIcon kind="x" size={11} /> Zu Rechteck
+                    </button>
+                  </>
+                )}
+              </div>
+              {layout.room.polygon && (
+                <div style={{ marginTop: 6, fontSize: 10.5, color: "var(--hi-muted)", lineHeight: 1.4 }}>
+                  Punkt ziehen = verschieben · „+" an Kante = neuer Punkt · Doppelklick = entfernen
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Rotation panel for selected table in edit mode */}
+          {editMode && selectedTable && (
+            <div style={{
+              position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)",
+              padding: "8px 12px", borderRadius: 10,
+              background: "var(--hi-surface)",
+              border: "1px solid var(--hi-line)",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+              display: "flex", alignItems: "center", gap: 8,
+              fontSize: 12, color: "var(--hi-ink)",
+            }}>
+              <span className="mono" style={{ fontSize: 11, color: "var(--hi-muted)" }}>
+                {selectedTable.label}
+              </span>
+              <span style={{ width: 1, height: 18, background: "var(--hi-line)" }} />
+              <span style={{ fontSize: 11, color: "var(--hi-muted)" }}>Rotation</span>
+              <button onClick={() => setTableRotation(selectedTable.id, -15)} style={miniBtnStyle}>−15°</button>
+              <button onClick={() => setTableRotation(selectedTable.id, -90)} style={miniBtnStyle}>↺ 90°</button>
+              <span className="mono" style={{ minWidth: 40, textAlign: "center", fontSize: 12, fontWeight: 600, color: "var(--hi-accent)" }}>
+                {Math.round(layout.tables[selectedTable.id]?.rotation ?? 0)}°
+              </span>
+              <button onClick={() => setTableRotation(selectedTable.id, 90)} style={miniBtnStyle}>↻ 90°</button>
+              <button onClick={() => setTableRotation(selectedTable.id, 15)} style={miniBtnStyle}>+15°</button>
+              <button onClick={() => setLayout((p) => ({ ...p, tables: { ...p.tables, [selectedTable.id]: { ...p.tables[selectedTable.id], rotation: 0 } } }))}
+                      style={{ ...miniBtnStyle, color: "var(--hi-muted)" }}>
+                Reset
+              </button>
             </div>
           )}
         </div>
@@ -567,3 +728,12 @@ function Swatch({ color, border, label }: { color: string; border: string; label
     </span>
   );
 }
+
+const miniBtnStyle: React.CSSProperties = {
+  padding: "4px 9px", borderRadius: 6, fontSize: 11, fontWeight: 500,
+  border: "1px solid var(--hi-line)",
+  background: "var(--hi-surface-raised)",
+  color: "var(--hi-muted-strong)",
+  cursor: "pointer",
+  display: "inline-flex", alignItems: "center", gap: 4,
+};

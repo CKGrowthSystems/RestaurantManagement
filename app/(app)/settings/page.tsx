@@ -27,11 +27,13 @@ export default async function SettingsPage() {
       su: { open: "12:00", close: "22:00" },
     },
     voice_prompt: null,
+    branding: null,
+    notify: null,
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
-      <Topbar title="Einstellungen" subtitle="Freigabe-Regeln · Öffnungszeiten · Voice-KI · Whitelabel" />
+      <Topbar title="Einstellungen" subtitle="Freigabe-Timer · Öffnungszeiten · Benachrichtigungen · Whitelabel · Benutzer" />
       <SettingsClient initial={settings} />
     </div>
   );

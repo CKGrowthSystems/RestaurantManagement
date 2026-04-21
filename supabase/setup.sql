@@ -48,6 +48,7 @@ create table if not exists floors (
   entrance_y    int not null default 440,
   entrance_w    int not null default 60,
   entrance_h    int not null default 20,
+  room_polygon  jsonb, -- array of {x,y} points; null = rectangle fallback
   created_at    timestamptz not null default now(),
   unique (restaurant_id, name)
 );
@@ -92,6 +93,7 @@ create table if not exists tables (
   notes           text,
   pos_x           int not null default 0,
   pos_y           int not null default 0,
+  rotation        int not null default 0 check (rotation between -360 and 360),
   release_minutes int,
   created_at      timestamptz not null default now(),
   unique (restaurant_id, label)
@@ -182,7 +184,9 @@ create table if not exists settings (
     "sa":{"open":"12:00","close":"23:30"},
     "su":{"open":"12:00","close":"22:00"}
   }'::jsonb,
-  voice_prompt    text
+  voice_prompt    text,
+  branding        jsonb,
+  notify          jsonb
 );
 
 -- ----------------------------------------------------------------------------

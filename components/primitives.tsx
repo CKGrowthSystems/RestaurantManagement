@@ -229,11 +229,12 @@ function layoutForSeats(seats: number): { cols: number; rows: number } {
 
 export function HiTable({
   shape = "round", seats = 4, label = "T1", status = "free",
-  size = 56, countdown, style, highlight, onClick,
+  size = 56, countdown, style, highlight, onClick, rotation = 0,
 }: {
   shape?: "round" | "square"; seats?: number; label?: string;
   status?: TableStatus; size?: number; countdown?: string | null;
   style?: React.CSSProperties; highlight?: boolean; onClick?: () => void;
+  rotation?: number;
 }) {
   const s = TABLE_STYLES[status];
   const { cols, rows } = layoutForSeats(seats);
@@ -256,6 +257,8 @@ export function HiTable({
         width: totalW, height: totalH,
         cursor: onClick ? "pointer" : "default",
         transition: "transform .12s",
+        transform: rotation ? `rotate(${rotation}deg)` : undefined,
+        transformOrigin: "center center",
         filter: highlight ? `drop-shadow(0 0 0 color-mix(in oklch, var(--hi-accent) 30%, transparent))` : undefined,
         ...style,
       }}

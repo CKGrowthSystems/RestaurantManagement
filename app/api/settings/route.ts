@@ -7,7 +7,7 @@ export async function PATCH(request: Request) {
   const body = await request.json();
 
   const patch: Record<string, unknown> = { restaurant_id: ctx.restaurantId };
-  for (const key of ["release_mode", "release_minutes", "voice_prompt", "opening_hours"] as const) {
+  for (const key of ["release_mode", "release_minutes", "voice_prompt", "opening_hours", "branding", "notify"] as const) {
     if (key in body) patch[key] = body[key];
   }
   const { data, error } = await ctx.supabase

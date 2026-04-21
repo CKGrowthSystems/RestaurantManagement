@@ -1,7 +1,23 @@
 "use client";
-import { useState } from "react";
-import { HiBtn, HiCard, HiTable } from "@/components/primitives";
-import type { Settings, ReleaseMode } from "@/lib/types";
+import { useEffect, useState } from "react";
+import { HiBtn, HiCard, HiIcon, HiPill, HiTable } from "@/components/primitives";
+import type { Settings, ReleaseMode, Branding, Notify, AppUser } from "@/lib/types";
+
+const DEFAULT_BRANDING: Branding = {
+  public_name: null,
+  primary_color: null,
+  accent_color: null,
+  logo_url: null,
+  powered_by: true,
+};
+const DEFAULT_NOTIFY: Notify = {
+  email: null,
+  phone: null,
+  on_reservation: true,
+  on_approval_required: true,
+  on_cancel: false,
+  daily_digest: false,
+};
 
 const MODES: { id: ReleaseMode; label: string; desc: string }[] = [
   { id: "global", label: "Eine Regel für alle Tische", desc: "Einfach, konsistent, gut für kleine Teams" },
@@ -12,9 +28,8 @@ const MODES: { id: ReleaseMode; label: string; desc: string }[] = [
 const TABS = [
   { id: "timer", label: "Freigabe-Timer" },
   { id: "hours", label: "Öffnungszeiten" },
-  { id: "voice", label: "Voice-KI Prompt" },
   { id: "notify", label: "Benachrichtigungen" },
-  { id: "theme", label: "Branding / Theme" },
+  { id: "theme", label: "Branding / Whitelabel" },
   { id: "users", label: "Benutzer & Rollen" },
 ] as const;
 
@@ -22,8 +37,9 @@ export function SettingsClient({ initial }: { initial: Settings }) {
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("timer");
   const [mode, setMode] = useState<ReleaseMode>(initial.release_mode);
   const [hold, setHold] = useState(initial.release_minutes);
-  const [prompt, setPrompt] = useState(initial.voice_prompt ?? "");
   const [hours, setHours] = useState(initial.opening_hours);
+  const [branding, setBranding] = useState<Branding>({ ...DEFAULT_BRANDING, ...(initial.branding ?? {}) });
+  const [notify, setNotify] = useState<Notify>({ ...DEFAULT_NOTIFY, ...(initial.notify ?? {}) });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -32,7 +48,13 @@ export function SettingsClient({ initial }: { initial: Settings }) {
     await fetch("/api/settings", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ release_mode: mode, release_minutes: hold, voice_prompt: prompt, opening_hours: hours }),
+      body: JSON.stringify({
+        release_mode: mode,
+        release_minutes: hold,
+        opening_hours: hours,
+        branding,
+        notify,
+      }),
     });
     setSaving(false); setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -42,13 +64,13 @@ export function SettingsClient({ initial }: { initial: Settings }) {
     <div style={{ flex: 1, display: "grid", gridTemplateColumns: "220px 1fr", minHeight: 0 }}>
       <div style={{ borderRight: "1px solid var(--hi-line)", padding: "20px 12px", background: "var(--hi-surface)" }}>
         {TABS.map((t) => (
-          <div key={t.id} onClick={() => setTab(t.id)} style={{
-            padding: "8px 12px", borderRadius: 7, cursor: "pointer",
-            fontSize: 12.5, fontWeight: 500,
-            color: tab === t.id ? "var(--hi-ink)" : "var(--hi-muted-strong)",
-            background: tab === t.id ? "var(--hi-surface-raised)" : "transparent",
-            marginBottom: 2,
-          }}>{t.label}</div>
+          <div
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`hi-settings-tab${tab === t.id ? " is-active" : ""}`}
+          >
+            {t.label}
+          </div>
         ))}
       </div>
 
@@ -161,31 +183,16 @@ export function SettingsClient({ initial }: { initial: Settings }) {
             </>
           )}
 
-          {tab === "voice" && (
-            <>
-              <Header title="Voice-KI Prompt" sub="Grundhaltung, Tonalität und Eskalationsregeln, die die KI am Telefon verfolgt." />
-              <HiCard style={{ padding: 20 }}>
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder={"Du bist die Gastgeberin von Restaurant Rhodos. Begrüße mit 'Rhodos Ohlsbach, guten Abend.' Sei warm, präzise, bestätige immer Datum, Uhrzeit, Personenzahl. Bei unklarer Anfrage: nachfragen, nicht raten."}
-                  style={{
-                    width: "100%", minHeight: 220,
-                    background: "var(--hi-surface-raised)",
-                    border: "1px solid var(--hi-line)",
-                    borderRadius: 8, padding: 12, fontSize: 13, lineHeight: 1.6,
-                    color: "var(--hi-ink)", resize: "vertical", outline: "none",
-                    fontFamily: "inherit",
-                  }}
-                />
-              </HiCard>
-            </>
+          {tab === "notify" && (
+            <NotifyTab notify={notify} setNotify={setNotify} />
           )}
 
-          {tab !== "timer" && tab !== "hours" && tab !== "voice" && (
-            <HiCard style={{ padding: 28, color: "var(--hi-muted)", fontSize: 13 }}>
-              Sektion „{TABS.find((t) => t.id === tab)?.label}" wird in einem Folgerelease freigeschaltet.
-            </HiCard>
+          {tab === "theme" && (
+            <ThemeTab branding={branding} setBranding={setBranding} />
+          )}
+
+          {tab === "users" && (
+            <UsersTab />
           )}
 
           <div style={{ display: "flex", gap: 10, marginTop: 24, paddingTop: 20, borderTop: "1px solid var(--hi-line)" }}>
@@ -222,3 +229,277 @@ const inputStyle: React.CSSProperties = {
   fontFamily: '"Geist Mono", ui-monospace, monospace',
   outline: "none",
 };
+const textInputStyle: React.CSSProperties = {
+  ...inputStyle,
+  fontFamily: "inherit",
+  width: "100%",
+};
+
+// ============================================================================
+// Benachrichtigungen
+// ============================================================================
+function NotifyTab({ notify, setNotify }: { notify: Notify; setNotify: (n: Notify) => void }) {
+  const row = (key: keyof Notify, label: string, desc: string) => (
+    <label key={String(key)} style={{
+      display: "flex", gap: 12, alignItems: "flex-start",
+      padding: "12px 14px", borderRadius: 8,
+      border: "1px solid var(--hi-line)", background: "var(--hi-surface)",
+      cursor: "pointer",
+    }}>
+      <input
+        type="checkbox"
+        checked={!!notify[key]}
+        onChange={(e) => setNotify({ ...notify, [key]: e.target.checked })}
+        style={{ marginTop: 2, accentColor: "var(--hi-accent)" }}
+      />
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)" }}>{label}</div>
+        <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginTop: 2 }}>{desc}</div>
+      </div>
+    </label>
+  );
+  return (
+    <>
+      <Header
+        title="Benachrichtigungen"
+        sub="Wer wird per E-Mail oder SMS informiert, wenn etwas passiert. Leer lassen = keine Benachrichtigungen."
+      />
+      <HiCard style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <div>
+            <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 4, fontWeight: 500 }}>E-Mail</div>
+            <input
+              type="email"
+              placeholder="inhaber@restaurant.de"
+              value={notify.email ?? ""}
+              onChange={(e) => setNotify({ ...notify, email: e.target.value || null })}
+              style={textInputStyle}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 4, fontWeight: 500 }}>Telefon (SMS/WhatsApp)</div>
+            <input
+              type="tel"
+              placeholder="+49 171 ..."
+              value={notify.phone ?? ""}
+              onChange={(e) => setNotify({ ...notify, phone: e.target.value || null })}
+              style={textInputStyle}
+            />
+          </div>
+        </div>
+      </HiCard>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {row("on_reservation",       "Neue Reservierung",        "Jede Voice-KI oder Web-Reservierung")}
+        {row("on_approval_required", "Freigabe nötig",           "Wenn Voice-KI einen größeren Tisch vorgeschlagen hat")}
+        {row("on_cancel",            "Stornierung",              "Wenn ein Gast storniert oder die Reservierung aufgehoben wird")}
+        {row("daily_digest",         "Tages-Zusammenfassung",    "Um 22:00 Uhr: alle Reservierungen des Tages")}
+      </div>
+    </>
+  );
+}
+
+// ============================================================================
+// Branding / Whitelabel
+// ============================================================================
+const COLOR_PRESETS = [
+  { label: "Rhodos Terracotta", primary: "#A8732F", accent: "#D19B58" },
+  { label: "Midnight Blue",     primary: "#1E3A5F", accent: "#4A90C2" },
+  { label: "Moss Green",        primary: "#3C5A3C", accent: "#7BA87B" },
+  { label: "Burgundy Wine",     primary: "#722F37", accent: "#B85C67" },
+  { label: "Onyx",              primary: "#1A1A1A", accent: "#D4AF37" },
+];
+
+function ThemeTab({ branding, setBranding }: { branding: Branding; setBranding: (b: Branding) => void }) {
+  return (
+    <>
+      <Header
+        title="Branding / Whitelabel"
+        sub="Wie heißt das Restaurant im System, welche Farben, welches Logo. Wird überall im Dashboard verwendet."
+      />
+      <HiCard style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 12 }}>Öffentlicher Name</div>
+        <input
+          type="text"
+          placeholder="z. B. Restaurant Rhodos Ohlsbach"
+          value={branding.public_name ?? ""}
+          onChange={(e) => setBranding({ ...branding, public_name: e.target.value || null })}
+          style={textInputStyle}
+        />
+        <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginTop: 6 }}>
+          Wird in E-Mails, Bestätigungen und in der Sidebar angezeigt.
+        </div>
+      </HiCard>
+
+      <HiCard style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Logo-URL</div>
+        <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 10 }}>
+          Einfache URL zu einer PNG/SVG. Upload-Funktion folgt.
+        </div>
+        <input
+          type="url"
+          placeholder="https://..."
+          value={branding.logo_url ?? ""}
+          onChange={(e) => setBranding({ ...branding, logo_url: e.target.value || null })}
+          style={textInputStyle}
+        />
+        {branding.logo_url && (
+          <div style={{ marginTop: 12, padding: 12, background: "var(--hi-surface-raised)", borderRadius: 6, display: "flex", alignItems: "center", gap: 10 }}>
+            <img src={branding.logo_url} alt="Logo" style={{ maxHeight: 40, maxWidth: 120, objectFit: "contain" }} />
+            <span style={{ fontSize: 11.5, color: "var(--hi-muted)" }}>Vorschau</span>
+          </div>
+        )}
+      </HiCard>
+
+      <HiCard style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 12 }}>Farbschema</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+          {COLOR_PRESETS.map((p) => {
+            const active = branding.primary_color === p.primary && branding.accent_color === p.accent;
+            return (
+              <button
+                key={p.label}
+                onClick={() => setBranding({ ...branding, primary_color: p.primary, accent_color: p.accent })}
+                style={{
+                  padding: 12, borderRadius: 8, cursor: "pointer",
+                  border: "1px solid", borderColor: active ? "var(--hi-accent)" : "var(--hi-line)",
+                  background: active ? "color-mix(in oklch, var(--hi-accent) 8%, var(--hi-surface))" : "var(--hi-surface)",
+                  display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+                }}
+              >
+                <div style={{ display: "flex", gap: 4 }}>
+                  <div style={{ width: 20, height: 20, borderRadius: 5, background: p.primary, border: "1px solid rgba(0,0,0,0.2)" }} />
+                  <div style={{ width: 20, height: 20, borderRadius: 5, background: p.accent, border: "1px solid rgba(0,0,0,0.2)" }} />
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 500, color: "var(--hi-ink)" }}>{p.label}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--hi-line)" }}>
+          <div>
+            <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 4 }}>Primärfarbe (hex)</div>
+            <input
+              type="text"
+              placeholder="#A8732F"
+              value={branding.primary_color ?? ""}
+              onChange={(e) => setBranding({ ...branding, primary_color: e.target.value || null })}
+              style={textInputStyle}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 4 }}>Akzentfarbe (hex)</div>
+            <input
+              type="text"
+              placeholder="#D19B58"
+              value={branding.accent_color ?? ""}
+              onChange={(e) => setBranding({ ...branding, accent_color: e.target.value || null })}
+              style={textInputStyle}
+            />
+          </div>
+        </div>
+      </HiCard>
+
+      <HiCard style={{ padding: 20 }}>
+        <label style={{ display: "flex", gap: 12, alignItems: "flex-start", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={!!branding.powered_by}
+            onChange={(e) => setBranding({ ...branding, powered_by: e.target.checked })}
+            style={{ marginTop: 2, accentColor: "var(--hi-accent)" }}
+          />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)" }}>„Powered by Rhodos Tables" im Footer</div>
+            <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginTop: 2 }}>
+              Deaktivieren für vollständiges Whitelabel.
+            </div>
+          </div>
+        </label>
+      </HiCard>
+    </>
+  );
+}
+
+// ============================================================================
+// Benutzer & Rollen
+// ============================================================================
+function UsersTab() {
+  const [users, setUsers] = useState<AppUser[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/users", { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!cancelled) setUsers(data.users ?? []);
+      } catch (err: any) {
+        if (!cancelled) setError(err?.message ?? "Laden fehlgeschlagen");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <>
+      <Header
+        title="Benutzer & Rollen"
+        sub="Wer hat Zugriff auf dieses Dashboard. Neue Benutzer anlegen darf nur der Inhaber."
+      />
+      <HiCard style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <div style={{ flex: 1, fontSize: 13, fontWeight: 500, color: "var(--hi-ink)" }}>Aktive Benutzer</div>
+          <HiBtn kind="outline" size="sm" icon="plus" onClick={() => alert("Benutzer-Einladung: Admin-API folgt. Bis dahin bitte über Supabase-Dashboard anlegen.")}>
+            Benutzer einladen
+          </HiBtn>
+        </div>
+        {error && (
+          <div style={{ padding: 10, fontSize: 12, color: "oklch(0.75 0.15 25)", background: "color-mix(in oklch, oklch(0.75 0.15 25) 10%, transparent)", borderRadius: 6 }}>
+            {error}
+          </div>
+        )}
+        {users === null && !error && (
+          <div style={{ fontSize: 12, color: "var(--hi-muted)" }}>Lade Benutzer…</div>
+        )}
+        {users && users.length === 0 && (
+          <div style={{ fontSize: 12, color: "var(--hi-muted)" }}>Keine Benutzer gefunden.</div>
+        )}
+        {users && users.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {users.map((u) => (
+              <div key={u.id} style={{
+                display: "grid", gridTemplateColumns: "32px 1fr auto auto", gap: 12, alignItems: "center",
+                padding: "10px 12px", borderRadius: 7,
+                background: "var(--hi-surface)", border: "1px solid var(--hi-line)",
+              }}>
+                <div style={{
+                  width: 32, height: 32, borderRadius: 8,
+                  background: "color-mix(in oklch, var(--hi-accent) 18%, var(--hi-surface))",
+                  color: "var(--hi-accent)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 11, fontWeight: 600,
+                }}>
+                  {u.display_name.slice(0, 2).toUpperCase()}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 500, color: "var(--hi-ink)" }}>{u.display_name}</div>
+                  <div style={{ fontSize: 11, color: "var(--hi-muted)" }}>{u.email}</div>
+                </div>
+                <HiPill tone={u.role === "owner" ? "accent" : u.role === "manager" ? "warn" : "neutral"}>
+                  {u.role}
+                </HiPill>
+                <div style={{ fontSize: 10.5, color: "var(--hi-muted)", fontFamily: '"Geist Mono", monospace' }}>
+                  {u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleDateString("de-DE") : "—"}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </HiCard>
+      <HiCard style={{ padding: 16, fontSize: 12, color: "var(--hi-muted)", lineHeight: 1.6 }}>
+        <strong style={{ color: "var(--hi-ink)" }}>Rollen-Hinweis:</strong> „Owner" kann alles, „Manager" kann Reservierungen und Tische verwalten, „Staff" nur anschauen und bestätigen. Rollenwechsel derzeit über Supabase-Console.
+      </HiCard>
+    </>
+  );
+}

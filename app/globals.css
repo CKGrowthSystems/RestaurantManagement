@@ -23,14 +23,14 @@ html, body { margin: 0; padding: 0; }
 body {
   background: var(--hi-bg);
   color: var(--hi-ink);
-  font-family: "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: var(--font-geist), "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   font-feature-settings: "cv11", "ss01";
   min-height: 100vh;
 }
 button { font-family: inherit; color: inherit; }
 a { color: inherit; text-decoration: none; }
 input, select, textarea { font-family: inherit; color: inherit; }
-.mono { font-family: "Geist Mono", ui-monospace, monospace; }
+.mono { font-family: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace; }
 
 @keyframes hi-pulse {
   0%, 100% { transform: scale(1); opacity: 0.4; }
@@ -47,3 +47,72 @@ input, select, textarea { font-family: inherit; color: inherit; }
 
 /* Table row hover */
 table.hi-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+/* ============================================================
+   Sidebar nav — hover + active polishing
+   ============================================================ */
+.hi-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--hi-muted-strong);
+  background: transparent;
+  position: relative;
+  transition: background 120ms ease, color 120ms ease;
+}
+.hi-nav-link:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--hi-ink);
+}
+.hi-nav-link.is-active {
+  color: var(--hi-ink);
+  background: var(--hi-surface-raised);
+  font-weight: 600;
+}
+.hi-nav-link.is-active::before {
+  content: "";
+  position: absolute;
+  left: -14px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--hi-accent);
+}
+.hi-nav-link.is-active .hi-nav-icon {
+  color: var(--hi-accent);
+}
+
+/* Settings sidebar tab */
+.hi-settings-tab {
+  padding: 8px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--hi-muted-strong);
+  margin-bottom: 2px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.hi-settings-tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--hi-ink);
+}
+.hi-settings-tab.is-active {
+  color: var(--hi-ink);
+  background: var(--hi-surface-raised);
+  font-weight: 600;
+}
+
+/* Floorplan tab header hover */
+.hi-floor-tab {
+  transition: background 120ms ease, color 120ms ease;
+}
+.hi-floor-tab:not(.is-active):hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: var(--hi-ink) !important;
+}

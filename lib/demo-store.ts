@@ -26,9 +26,11 @@ let _store: Store | null = null;
 function seed(): Store {
   const floors: Floor[] = [
     { id: "f-eg", restaurant_id: RESTAURANT_ID, name: "Erdgeschoss", sort_order: 0,
-      room_width: 940, room_height: 480, entrance_x: 600, entrance_y: 440, entrance_w: 60, entrance_h: 20 },
+      room_width: 940, room_height: 480, entrance_x: 600, entrance_y: 440, entrance_w: 60, entrance_h: 20,
+      room_polygon: null },
     { id: "f-og", restaurant_id: RESTAURANT_ID, name: "Obergeschoss", sort_order: 1,
-      room_width: 700, room_height: 420, entrance_x: 40,  entrance_y: 200, entrance_w: 20, entrance_h: 60 },
+      room_width: 700, room_height: 420, entrance_x: 40,  entrance_y: 200, entrance_w: 20, entrance_h: 60,
+      room_polygon: null },
   ];
   const zones: Zone[] = [
     { id: "z-innen",    restaurant_id: RESTAURANT_ID, floor_id: "f-eg", name: "Innenraum", sort_order: 0, release_minutes: null, bbox_x:  20, bbox_y: 60, bbox_w: 360, bbox_h: 360, color: null },
@@ -106,6 +108,8 @@ function seed(): Store {
       su: { open: "12:00", close: "22:00" },
     },
     voice_prompt: "Du bist die Gastgeberin von Rhodos Ohlsbach. Antworte herzlich und präzise auf Deutsch.",
+    branding: null,
+    notify: null,
   }];
 
   const restaurants: Restaurant[] = [{
@@ -123,7 +127,7 @@ function seed(): Store {
   function mk(label: string, zone_id: string, seats: number, shape: "round" | "square",
               accessible: boolean, notes: string | null, pos_x: number, pos_y: number): TableRow {
     return { id: `t-${label}`, restaurant_id: RESTAURANT_ID, zone_id,
-             label, seats, shape, accessible, notes, pos_x, pos_y, release_minutes: null };
+             label, seats, shape, accessible, notes, pos_x, pos_y, rotation: 0, release_minutes: null };
   }
   function rsv(guest_name: string, party_size: number, starts_at: string,
                source: Reservation["source"], status: Reservation["status"],

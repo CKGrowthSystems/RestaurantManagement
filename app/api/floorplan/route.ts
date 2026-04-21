@@ -21,14 +21,18 @@ export async function PATCH(request: Request) {
 
   if (body.floor_id && body.room) {
     const r = body.room;
-    await ctx.supabase.from("floors").update({
+    const floorPatch: Record<string, unknown> = {
       room_width: clamp(r.width, 400, 4000),
       room_height: clamp(r.height, 300, 3000),
       entrance_x: clamp(r.entrance_x, 0, 4000),
       entrance_y: clamp(r.entrance_y, 0, 3000),
       entrance_w: clamp(r.entrance_w, 10, 400),
       entrance_h: clamp(r.entrance_h, 10, 400),
-    }).eq("id", body.floor_id).eq("restaurant_id", ctx.restaurantId);
+    };
+    if ("room_polygon" in r) {
+      floorPatch.room_polygon = sanitizePolygon(r.room_polygon);
+    }
+    await ctx.supabase.from("floors").update(floorPatch).eq("id", body.floor_id).eq("restaurant_id", ctx.restaurantId);
   }
 
   if (Array.isArray(body.zones)) {
@@ -51,6 +55,7 @@ export async function PATCH(request: Request) {
         pos_y: clamp(t.pos_y, 0, 4000),
       };
       if ("zone_id" in t) patch.zone_id = t.zone_id;
+      if ("rotation" in t) patch.rotation = clamp(t.rotation, -360, 360);
       await ctx.supabase.from("tables").update(patch)
         .eq("id", t.id).eq("restaurant_id", ctx.restaurantId);
     }
@@ -63,4 +68,15 @@ function clamp(n: unknown, min: number, max: number): number {
   const v = Number(n);
   if (!Number.isFinite(v)) return min;
   return Math.max(min, Math.min(max, Math.round(v)));
+}
+
+function sanitizePolygon(p: unknown): { x: number; y: number }[] | null {
+  if (!Array.isArray(p) || p.length < 3) return null;
+  const out: { x: number; y: number }[] = [];
+  for (const pt of p) {
+    const x = clamp((pt as any)?.x, 0, 4000);
+    const y = clamp((pt as any)?.y, 0, 4000);
+    out.push({ x, y });
+  }
+  return out.length >= 3 ? out : null;
 }

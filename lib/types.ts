@@ -20,6 +20,8 @@ export interface Restaurant {
   logo_url: string | null;
 }
 
+export interface RoomPoint { x: number; y: number }
+
 export interface Floor {
   id: string;
   restaurant_id: string;
@@ -31,6 +33,7 @@ export interface Floor {
   entrance_y: number;
   entrance_w: number;
   entrance_h: number;
+  room_polygon: RoomPoint[] | null;
 }
 
 export interface Zone {
@@ -58,6 +61,7 @@ export interface TableRow {
   notes: string | null;
   pos_x: number;
   pos_y: number;
+  rotation: number;
   release_minutes: number | null;
 }
 
@@ -90,10 +94,38 @@ export interface VoiceCall {
   transcript: { speaker: "AI" | "Guest"; text: string }[];
 }
 
+export interface Branding {
+  public_name: string | null;
+  primary_color: string | null;
+  accent_color: string | null;
+  logo_url: string | null;
+  powered_by: boolean;
+}
+
+export interface Notify {
+  email: string | null;
+  phone: string | null;
+  on_reservation: boolean;
+  on_approval_required: boolean;
+  on_cancel: boolean;
+  daily_digest: boolean;
+}
+
 export interface Settings {
   restaurant_id: string;
   release_mode: ReleaseMode;
   release_minutes: number;
   opening_hours: Record<string, { open: string; close: string }>;
   voice_prompt: string | null;
+  branding: Branding | null;
+  notify: Notify | null;
+}
+
+export interface AppUser {
+  id: string;
+  email: string;
+  display_name: string;
+  role: "owner" | "manager" | "staff";
+  created_at: string;
+  last_sign_in_at: string | null;
 }
