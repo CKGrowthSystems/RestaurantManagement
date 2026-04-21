@@ -1,11 +1,19 @@
 "use client";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { createClient } from "@/lib/supabase/browser";
 import { HiBtn, HiField } from "@/components/primitives";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<div style={{ color: "var(--hi-muted)", fontSize: 13 }}>Lade…</div>}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") || "/dashboard";
