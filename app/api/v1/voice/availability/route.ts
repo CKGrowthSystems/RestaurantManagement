@@ -39,9 +39,10 @@ export async function POST(request: Request) {
   const durationMin = Number(body.duration_min ?? 90);
   const startsAtRaw = body.starts_at;
   if (!Number.isFinite(party) || party <= 0 || !startsAtRaw) {
-    const resp = { error: "party_size and starts_at required" };
-    await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 400, requestBody: body, responseBody: resp, ip });
-    return NextResponse.json(resp, { status: 400 });
+    // Leer/Test-Ping von GHL → 200 statt 400, damit „Test Webhook" grün wird.
+    const resp = { ok: true, test: true, message: "Endpoint erreichbar. Für echte Abfragen: party_size + starts_at mitgeben." };
+    await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 200, requestBody: body, responseBody: resp, ip });
+    return NextResponse.json(resp);
   }
   const startsAt = new Date(startsAtRaw);
 

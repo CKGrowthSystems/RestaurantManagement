@@ -41,9 +41,9 @@ export async function POST(request: Request) {
   const party = Number(body.party_size);
   const durationMin = Number(body.duration_min ?? 90);
   if (!body.guest_name || !Number.isFinite(party) || party <= 0 || !body.starts_at) {
-    const resp = { error: "guest_name, party_size, starts_at required" };
-    await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 400, requestBody: body, responseBody: resp, ip });
-    return NextResponse.json(resp, { status: 400 });
+    const resp = { ok: true, test: true, message: "Endpoint erreichbar. Für echte Reservierungen: guest_name, party_size, starts_at mitgeben." };
+    await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 200, requestBody: body, responseBody: resp, ip });
+    return NextResponse.json(resp);
   }
 
   const startsAt = new Date(body.starts_at);

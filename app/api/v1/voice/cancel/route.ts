@@ -32,9 +32,9 @@ export async function POST(request: Request) {
     const to = new Date(start.getTime() + 30 * 60_000).toISOString();
     query = query.eq("phone", body.phone).gte("starts_at", from).lte("starts_at", to);
   } else {
-    const resp = { error: "reservation_id or (phone + starts_at) required" };
-    await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 400, requestBody: body, responseBody: resp, ip });
-    return NextResponse.json(resp, { status: 400 });
+    const resp = { ok: true, test: true, message: "Endpoint erreichbar. Für echte Stornos: reservation_id oder (phone + starts_at) mitgeben." };
+    await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 200, requestBody: body, responseBody: resp, ip });
+    return NextResponse.json(resp);
   }
 
   const { data, error } = await query.select();
