@@ -77,11 +77,31 @@ export async function POST(request: Request) {
     reason: c.reason,
   });
 
+  const timeStr = startsAt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
+  const dateStr = startsAt.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Berlin" });
+  const zoneTxt = body.zone ? ` im Bereich ${body.zone}` : "";
+  const totalTables = (tables ?? []).length;
+
+  let instruction: string;
+  let available = false;
+  if (totalTables === 0) {
+    instruction = `ABSAGEN: Es sind aktuell keine Tische im System konfiguriert. Dem Gast höflich mitteilen, dass momentan keine Online-Reservierung möglich ist und er direkt unter 07803 926970 anrufen soll.`;
+  } else if (ranked.length === 0) {
+    instruction = `ABSAGEN: Für ${party} Personen am ${dateStr} um ${timeStr}${zoneTxt} ist kein Tisch verfügbar. Dem Gast eine Alternativzeit vorschlagen oder nachfragen.`;
+  } else {
+    available = true;
+    const best = ranked[0];
+    const zName = zoneById.get(best.table.zone_id ?? "") ?? "Innenraum";
+    instruction = `BESTÄTIGEN: Tisch für ${party} Personen am ${dateStr} um ${timeStr} im Bereich ${zName} ist verfügbar. Dem Gast das Datum, die Uhrzeit und den Bereich bestätigen und nach Namen und Telefonnummer fragen.`;
+  }
+
   const resp = {
-    available: ranked.length > 0,
+    available,
+    instruction,
     slot: { starts_at: startsAt.toISOString(), duration_min: durationMin },
     best: ranked[0] ? mapCand(ranked[0]) : null,
     candidates: ranked.slice(0, 5).map(mapCand),
+    total_tables_in_system: totalTables,
   };
 
   await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 200, requestBody: body, responseBody: resp, ip });

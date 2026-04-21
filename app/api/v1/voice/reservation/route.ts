@@ -110,6 +110,21 @@ export async function POST(request: Request) {
     ? ((zones ?? []) as Zone[]).find((z) => z.id === assignedTable.zone_id)?.name ?? null
     : null;
 
+  const timeStr = startsAt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
+  const dateStr = startsAt.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Berlin" });
+  const totalTables = ((tables ?? []) as TableRow[]).length;
+
+  let instruction: string;
+  if (totalTables === 0) {
+    instruction = `ABSAGEN: Es sind keine Tische im System. Keine Reservierung anlegen. Gast zurück an Restaurant verweisen: 07803 926970.`;
+  } else if (!assignedTable) {
+    instruction = `ABSAGEN: Für ${party} Personen am ${dateStr} um ${timeStr} ist kein Tisch verfügbar. Dem Gast sagen, dass die Reservierung nicht möglich ist.`;
+  } else if (decision.status === "Offen" && decision.autoAssigned) {
+    instruction = `NOTIEREN: Reservierung angelegt, aber ein größerer Tisch (${zoneName}) wurde zugewiesen. Dem Gast sagen: "Ich habe Sie notiert, der Tisch wird noch bestätigt, Sie bekommen eine Rückmeldung."`;
+  } else {
+    instruction = `FERTIG: Reservierung fest für ${body.guest_name}, ${party} Personen, ${dateStr} ${timeStr}, Bereich ${zoneName}. Gast bestätigen: "Perfekt, ich habe Sie fest eingetragen, wir freuen uns auf Sie."`;
+  }
+
   const resp = {
     ok: true,
     reservation_id: reservation.id,
@@ -119,6 +134,7 @@ export async function POST(request: Request) {
       : null,
     requires_approval: decision.autoAssigned && decision.status === "Offen",
     approval_reason: decision.approvalReason,
+    instruction,
     message: decision.reasonForAI,
   };
   await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 201, requestBody: body, responseBody: resp, ip });

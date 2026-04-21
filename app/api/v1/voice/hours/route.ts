@@ -22,7 +22,16 @@ export async function GET(request: Request) {
     .eq("restaurant_id", auth.restaurantId)
     .maybeSingle();
 
-  const resp = { hours: data?.opening_hours ?? null, timezone: auth.timezone };
+  const hoursData = data?.opening_hours as Record<string, { open: string; close: string }> | null;
+  const days: Record<string, string> = { mo: "Montag", tu: "Dienstag", we: "Mittwoch", th: "Donnerstag", fr: "Freitag", sa: "Samstag", su: "Sonntag" };
+  const today = new Date();
+  const dayKey = ["su","mo","tu","we","th","fr","sa"][today.getDay()];
+  const todayHours = hoursData?.[dayKey];
+  const instruction = todayHours
+    ? `Heute (${days[dayKey]}) ist das Restaurant von ${todayHours.open} bis ${todayHours.close} geöffnet. Bei Fragen zu anderen Tagen: nutze die 'hours'-Liste.`
+    : `Heute geschlossen. Dem Gast das mitteilen.`;
+
+  const resp = { hours: hoursData, timezone: auth.timezone, instruction };
   await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "GET", statusCode: 200, requestBody: null, responseBody: resp, ip });
   return NextResponse.json(resp);
 }
