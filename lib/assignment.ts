@@ -1,0 +1,121 @@
+import type { Reservation, TableRow, Zone } from "./types";
+
+export interface AssignmentCandidate {
+  table: TableRow;
+  zoneName: string | null;
+  score: number;              // lower is better
+  surplus: number;            // seats - partySize
+  exactMatch: boolean;        // surplus 0-1 AND zone match (if requested)
+  requiresApproval: boolean;  // assigned but needs owner OK (larger table than requested)
+  reason: "Perfekter Match" | "Größer als nötig" | "Falscher Bereich" | "Barrierefrei";
+  tone: "success" | "neutral" | "warn";
+}
+
+const BUFFER_MIN = 15;
+
+export function rankCandidates(options: {
+  tables: TableRow[];
+  zones: Zone[];
+  existing: Reservation[];
+  partySize: number;
+  startsAt: Date;
+  durationMin: number;
+  preferredZoneName?: string | null;
+  requireAccessible?: boolean;
+}): AssignmentCandidate[] {
+  const {
+    tables, zones, existing,
+    partySize, startsAt, durationMin,
+    preferredZoneName, requireAccessible,
+  } = options;
+
+  const zoneById = new Map(zones.map((z) => [z.id, z]));
+  const slotStart = startsAt.getTime();
+  const slotEnd = slotStart + durationMin * 60_000;
+
+  const overlaps = (tableId: string) =>
+    existing.some((r) => {
+      if (r.table_id !== tableId) return false;
+      if (r.status === "Storniert" || r.status === "Abgeschlossen" || r.status === "No-Show") return false;
+      const rStart = new Date(r.starts_at).getTime() - BUFFER_MIN * 60_000;
+      const rEnd = rStart + (r.duration_min + 2 * BUFFER_MIN) * 60_000;
+      return !(slotEnd <= rStart || slotStart >= rEnd);
+    });
+
+  return tables
+    .filter((t) => t.seats >= partySize)
+    .filter((t) => (requireAccessible ? t.accessible : true))
+    .filter((t) => !overlaps(t.id))
+    .map<AssignmentCandidate>((t) => {
+      const surplus = t.seats - partySize;
+      const zoneName = t.zone_id ? zoneById.get(t.zone_id)?.name ?? null : null;
+      const zoneMatch = preferredZoneName && zoneName ? zoneName === preferredZoneName : null;
+
+      // Tighter-fit tables are preferred (golf score — lower is better)
+      let score = surplus * 10;
+      if (preferredZoneName) score += zoneMatch ? -25 : 30;
+      if (t.accessible && !requireAccessible) score += 2;
+
+      const zoneOk = !preferredZoneName || zoneMatch === true;
+      const exactMatch = surplus <= 1 && zoneOk;
+      const requiresApproval = !exactMatch;
+
+      let reason: AssignmentCandidate["reason"];
+      let tone: AssignmentCandidate["tone"];
+      if (preferredZoneName && zoneMatch === false) {
+        reason = "Falscher Bereich"; tone = "warn";
+      } else if (surplus === 0) {
+        reason = "Perfekter Match";  tone = "success";
+      } else if (surplus <= 1) {
+        reason = "Perfekter Match";  tone = "success";
+      } else {
+        reason = "Größer als nötig"; tone = "warn";
+      }
+
+      return { table: t, zoneName, score, surplus, exactMatch, requiresApproval, reason, tone };
+    })
+    .sort((a, b) => a.score - b.score);
+}
+
+export function bestCandidate(opts: Parameters<typeof rankCandidates>[0]) {
+  return rankCandidates(opts)[0] ?? null;
+}
+
+/**
+ * Decide auto-assignment result:
+ *   - exact match     → assign + Bestätigt
+ *   - larger-table    → assign + Offen + auto_assigned + approval_reason
+ *   - no candidate    → no table + Offen (team has to pick manually)
+ */
+export function autoAssign(opts: Parameters<typeof rankCandidates>[0]): {
+  tableId: string | null;
+  status: "Bestätigt" | "Offen";
+  autoAssigned: boolean;
+  approvalReason: string | null;
+  reasonForAI: string;
+} {
+  const ranked = rankCandidates(opts);
+  const best = ranked[0];
+
+  if (!best) {
+    return {
+      tableId: null, status: "Offen", autoAssigned: false, approvalReason: null,
+      reasonForAI: "Kein passender Tisch frei – manuelle Zuordnung nötig.",
+    };
+  }
+
+  if (best.exactMatch) {
+    return {
+      tableId: best.table.id, status: "Bestätigt", autoAssigned: true, approvalReason: null,
+      reasonForAI: `Tisch ${best.table.label} perfekt zugewiesen.`,
+    };
+  }
+
+  const reason = best.surplus >= 2
+    ? `Größerer Tisch (${best.table.seats} Plätze für ${opts.partySize} Personen) zugewiesen – bitte bestätigen.`
+    : "Tisch außerhalb Wunsch-Bereich zugewiesen – bitte bestätigen.";
+  return {
+    tableId: best.table.id, status: "Offen", autoAssigned: true, approvalReason: reason,
+    reasonForAI: `Tisch ${best.table.label} vorgeschlagen (Bestätigung nötig).`,
+  };
+}

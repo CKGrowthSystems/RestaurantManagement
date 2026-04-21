@@ -1,0 +1,12 @@
+node_modules
+.next
+out
+.DS_Store
+*.log
+data/runtime.json
+
+# env files — niemals einchecken!
+.env
+.env.local
+.env.*.local
+.env.production
