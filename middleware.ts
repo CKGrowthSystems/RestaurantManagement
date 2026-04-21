@@ -14,7 +14,7 @@ function isDemoMode() {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (pathname.startsWith("/api/v1/voice/")) return NextResponse.next();
+  if (pathname.startsWith("/api/v1/voice/") || pathname.startsWith("/api/mcp")) return NextResponse.next();
 
   // Stranded /register visits → /login (Self-Signup ist deaktiviert).
   if (pathname === "/register" || pathname.startsWith("/register/")) {
