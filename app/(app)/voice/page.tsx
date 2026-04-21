@@ -1,9 +1,11 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/tenant";
 import { Topbar } from "@/components/shell";
 import { HiBtn, HiCard, HiIcon, HiPill } from "@/components/primitives";
 import type { VoiceCall } from "@/lib/types";
 import { CopyWebhookUrl } from "./copy-url";
+import { IntegrationWizard } from "./integration-wizard";
 
 export const dynamic = "force-dynamic";
 
@@ -12,12 +14,17 @@ export default async function VoicePage() {
   if (!ctx) redirect("/login");
   const { supabase, restaurantId } = ctx;
 
+  const hdrs = await headers();
+  const proto = hdrs.get("x-forwarded-proto") ?? "https";
+  const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "localhost:3030";
+  const baseUrl = `${proto}://${host}`;
+
   const [{ data: calls }, { data: restaurantRow }] = await Promise.all([
     supabase.from("voice_calls").select("*")
       .eq("restaurant_id", restaurantId)
       .order("started_at", { ascending: false })
       .limit(20),
-    supabase.from("restaurants").select("webhook_secret").eq("id", restaurantId).maybeSingle(),
+    supabase.from("restaurants").select("webhook_secret, name").eq("id", restaurantId).maybeSingle(),
   ]);
 
   const callList = (calls ?? []) as VoiceCall[];
@@ -60,13 +67,17 @@ export default async function VoicePage() {
             <Stat label="Fehler" value={String(failures)} sub="letzte 24h" />
           </div>
 
+          <IntegrationWizard
+            baseUrl={baseUrl}
+            secret={restaurantRow?.webhook_secret ?? ""}
+            restaurantName={restaurantRow?.name ?? "Rhodos Ohlsbach"}
+          />
+
           <HiCard style={{ padding: 0 }}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--hi-line)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--hi-ink)" }}>Webhook-Endpoints</div>
-                <div style={{ fontSize: 11.5, color: "var(--hi-muted)" }}>
-                  GoHighLevel ruft diese Endpoints zur Laufzeit auf. Shared-Secret als <code className="mono">X-Webhook-Secret</code>.
-                </div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--hi-ink)" }}>Aufruf-Statistik</div>
+                <div style={{ fontSize: 11.5, color: "var(--hi-muted)" }}>Heutige Nutzung pro Endpoint</div>
               </div>
               <CopyWebhookUrl secret={restaurantRow?.webhook_secret ?? ""} />
             </div>
