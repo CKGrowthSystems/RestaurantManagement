@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/browser";
 import { HiBtn, HiIcon, HiPill, RhodosWordmark, type IconKind } from "./primitives";
 
@@ -46,7 +46,7 @@ export function Sidebar({
       }}
     >
       <div style={{ padding: "4px 8px 6px" }}>
-        <RhodosWordmark name={restaurantName.toUpperCase()} sub="TABLES" />
+        <EditableWordmark initial={restaurantName} />
       </div>
       <div
         style={{
@@ -249,6 +249,102 @@ export function VoiceBanner({
       <HiBtn kind="primary" size="sm" icon="check" onClick={onConfirm}>
         Bestätigen &amp; Tisch zuweisen
       </HiBtn>
+    </div>
+  );
+}
+
+/**
+ * Sidebar-Wordmark mit Inline-Edit.
+ * - Klick auf den Titel -> Input erscheint.
+ * - Enter / Blur speichert ueber PATCH /api/settings (branding.public_name).
+ * - Esc verwirft.
+ * - Router-Refresh holt den neuen Wert aus dem Layout auf allen Seiten.
+ */
+function EditableWordmark({ initial }: { initial: string }) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(initial);
+  const [savedValue, setSavedValue] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [hover, setHover] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setValue(initial); setSavedValue(initial); }, [initial]);
+  useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
+
+  async function commit() {
+    const next = value.trim();
+    if (!next || next === savedValue) { setEditing(false); setValue(savedValue); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ branding: { public_name: next } }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setSavedValue(next);
+      setEditing(false);
+      router.refresh();
+    } catch {
+      setValue(savedValue);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <form onSubmit={(e) => { e.preventDefault(); commit(); }}>
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === "Escape") { setValue(savedValue); setEditing(false); } }}
+          maxLength={40}
+          style={{
+            width: "100%",
+            padding: "6px 8px",
+            borderRadius: 6,
+            border: `1px solid var(--hi-accent)`,
+            background: "var(--hi-surface-raised)",
+            color: "var(--hi-ink)",
+            fontSize: 13, fontWeight: 600, letterSpacing: 1.5,
+            outline: "none",
+            fontFamily: "inherit",
+          }}
+          placeholder="Restaurantname"
+          disabled={saving}
+        />
+      </form>
+    );
+  }
+
+  return (
+    <div
+      onClick={() => setEditing(true)}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      title="Klick zum Umbenennen"
+      style={{
+        cursor: "pointer", borderRadius: 7, padding: "2px 6px",
+        margin: "-2px -6px",
+        background: hover ? "rgba(255,255,255,0.05)" : "transparent",
+        position: "relative",
+        transition: "background 120ms ease",
+      }}
+    >
+      <RhodosWordmark name={savedValue.toUpperCase()} sub="TABLES" />
+      {hover && (
+        <span style={{
+          position: "absolute", top: 4, right: 4,
+          color: "var(--hi-muted)", display: "inline-flex",
+        }}>
+          <HiIcon kind="edit" size={11} />
+        </span>
+      )}
     </div>
   );
 }

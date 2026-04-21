@@ -8,7 +8,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const { supabase, restaurantId } = ctx;
 
-  const [{ count: openCount }, { count: voiceCount }] = await Promise.all([
+  const [{ count: openCount }, { count: voiceCount }, settingsRes] = await Promise.all([
     supabase
       .from("reservations")
       .select("*", { count: "exact", head: true })
@@ -19,10 +19,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       .select("*", { count: "exact", head: true })
       .eq("restaurant_id", restaurantId)
       .gte("started_at", new Date(Date.now() - 24 * 3600_000).toISOString()),
+    supabase
+      .from("settings")
+      .select("branding")
+      .eq("restaurant_id", restaurantId)
+      .maybeSingle(),
   ]);
 
   // Apply tenant theme via data-theme on <html>.
   const theme = ctx.restaurant?.theme ?? "default";
+
+  const brandingName = (settingsRes?.data as any)?.branding?.public_name as string | undefined;
+  const fallbackName = ctx.restaurant?.name ?? "Rhodos";
+  const effectiveName = (brandingName && brandingName.trim()) || fallbackName;
 
   return (
     <div
@@ -32,7 +41,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <Sidebar
         displayName={ctx.displayName}
         role={ctx.role}
-        restaurantName={ctx.restaurant?.name ?? "Rhodos"}
+        restaurantName={effectiveName}
         badges={{
           reservations: { n: openCount ?? 0 },
           voice: { n: voiceCount ?? 0, tone: "accent" },

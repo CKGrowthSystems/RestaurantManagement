@@ -49,11 +49,25 @@ export function RhodosMark({ size = 32, style }: { size?: number; style?: React.
 }
 
 export function RhodosWordmark({ name = "RHODOS", sub = "TABLES" }: { name?: string; sub?: string }) {
+  // Adaptive sizing: longer names get smaller font + tighter letter-spacing
+  // so they still fit in the 232px sidebar without overflowing.
+  const len = name.length;
+  const fontSize = len <= 8 ? 15 : len <= 14 ? 13 : len <= 20 ? 11 : 10;
+  const letterSpacing = len <= 8 ? 2.5 : len <= 14 ? 1.6 : len <= 20 ? 0.8 : 0.3;
   return (
-    <div style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-      <RhodosMark size={32} />
-      <div style={{ display: "flex", flexDirection: "column", lineHeight: 1 }}>
-        <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: 2.5, color: "var(--hi-ink)" }}>{name}</span>
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 10, maxWidth: "100%" }}>
+      <RhodosMark size={32} style={{ flexShrink: 0 }} />
+      <div style={{ display: "flex", flexDirection: "column", lineHeight: 1, minWidth: 0, flex: 1 }}>
+        <span
+          title={name}
+          style={{
+            fontSize, fontWeight: 600, letterSpacing,
+            color: "var(--hi-ink)",
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+          }}
+        >
+          {name}
+        </span>
         <span style={{ fontSize: 9, letterSpacing: 3.2, marginTop: 3, color: "var(--hi-muted)", fontWeight: 500 }}>{sub}</span>
       </div>
     </div>
