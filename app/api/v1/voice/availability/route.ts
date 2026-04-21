@@ -38,9 +38,24 @@ export async function POST(request: Request) {
   const party = Number(body.party_size);
   const durationMin = Number(body.duration_min ?? 90);
   const startsAtRaw = body.starts_at;
+  const bodyIsEmpty = Object.keys(body).length === 0;
+
+  if (bodyIsEmpty) {
+    // Reiner Test-Ping von GHL beim Speichern: 200 damit Save-Flow durchgeht.
+    const resp = {
+      ok: true, test: true, available: false,
+      instruction: "NUR-TEST: Dies ist ein Verbindungs-Test ohne Parameter. Ignorieren, nicht zum Gast sprechen.",
+    };
+    await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 200, requestBody: body, responseBody: resp, ip });
+    return NextResponse.json(resp);
+  }
+
   if (!Number.isFinite(party) || party <= 0 || !startsAtRaw) {
-    // Leer/Test-Ping von GHL → 200 statt 400, damit „Test Webhook" grün wird.
-    const resp = { ok: true, test: true, message: "Endpoint erreichbar. Für echte Abfragen: party_size + starts_at mitgeben." };
+    const resp = {
+      ok: true, available: false,
+      instruction: "NACHFRAGEN: Es fehlen party_size oder starts_at. Frage den Gast nach Personenzahl UND Datum/Uhrzeit und rufe check_availability erneut auf. KEINE Reservierung ohne diese Daten bestätigen.",
+      missing: { party_size: !Number.isFinite(party) || party <= 0, starts_at: !startsAtRaw },
+    };
     await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 200, requestBody: body, responseBody: resp, ip });
     return NextResponse.json(resp);
   }

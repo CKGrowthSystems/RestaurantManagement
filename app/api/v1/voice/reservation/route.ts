@@ -40,8 +40,27 @@ export async function POST(request: Request) {
 
   const party = Number(body.party_size);
   const durationMin = Number(body.duration_min ?? 90);
+  const bodyIsEmpty = Object.keys(body).length === 0;
+
+  if (bodyIsEmpty) {
+    const resp = {
+      ok: true, test: true,
+      instruction: "NUR-TEST: Verbindungs-Test ohne Parameter. Ignorieren.",
+    };
+    await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 200, requestBody: body, responseBody: resp, ip });
+    return NextResponse.json(resp);
+  }
+
   if (!body.guest_name || !Number.isFinite(party) || party <= 0 || !body.starts_at) {
-    const resp = { ok: true, test: true, message: "Endpoint erreichbar. Für echte Reservierungen: guest_name, party_size, starts_at mitgeben." };
+    const resp = {
+      ok: true,
+      instruction: "NACHFRAGEN: Es fehlen Pflichtfelder für die Reservierung. Frage den Gast nach Name, Personenzahl und Zeitpunkt. KEINE Reservierung anlegen.",
+      missing: {
+        guest_name: !body.guest_name,
+        party_size: !Number.isFinite(party) || party <= 0,
+        starts_at: !body.starts_at,
+      },
+    };
     await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 200, requestBody: body, responseBody: resp, ip });
     return NextResponse.json(resp);
   }
