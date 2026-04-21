@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_PATHS = ["/login", "/register", "/auth/callback"];
+const PUBLIC_PATHS = ["/login", "/auth/callback"];
 
 function isDemoMode() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -16,9 +16,14 @@ export async function middleware(request: NextRequest) {
 
   if (pathname.startsWith("/api/v1/voice/")) return NextResponse.next();
 
+  // Stranded /register visits → /login (Self-Signup ist deaktiviert).
+  if (pathname === "/register" || pathname.startsWith("/register/")) {
+    const url = request.nextUrl.clone(); url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
   if (isDemoMode()) {
-    // Demo mode — auth is disabled, all non-public pages render with seeded data.
-    if (pathname === "/login" || pathname === "/register") {
+    if (pathname === "/login") {
       const url = request.nextUrl.clone(); url.pathname = "/dashboard";
       return NextResponse.redirect(url);
     }
@@ -48,7 +53,7 @@ export async function middleware(request: NextRequest) {
     url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
-  if (user && (pathname === "/login" || pathname === "/register")) {
+  if (user && pathname === "/login") {
     const url = request.nextUrl.clone(); url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }

@@ -1,6 +1,5 @@
 "use client";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { Suspense, useState } from "react";
 import { createClient } from "@/lib/supabase/browser";
 import { HiBtn, HiField } from "@/components/primitives";
@@ -57,11 +56,8 @@ function LoginForm() {
           {loading ? "Anmelden…" : "Anmelden"}
         </HiBtn>
       </form>
-      <div style={{ fontSize: 12.5, color: "var(--hi-muted)", textAlign: "center" }}>
-        Noch kein Konto?{" "}
-        <Link href="/register" style={{ color: "var(--hi-accent)", fontWeight: 500 }}>
-          Restaurant registrieren
-        </Link>
+      <div style={{ fontSize: 12, color: "var(--hi-muted)", textAlign: "center", lineHeight: 1.5 }}>
+        Noch keinen Zugang? Dein Administrator legt Accounts an.
       </div>
     </div>
   );
