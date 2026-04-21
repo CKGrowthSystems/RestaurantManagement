@@ -96,18 +96,26 @@ function textContent(obj: unknown) {
   };
 }
 
-/** Is the given ISO timestamp within opening hours for that weekday? */
-function isWithinOpeningHours(d: Date, openingHours: Record<string, { open: string; close: string }> | null): boolean {
-  if (!openingHours) return true; // unknown → allow
-  const dayKey = ["su", "mo", "tu", "we", "th", "fr", "sa"][d.getDay()];
+/** Is the given ISO timestamp within opening hours for that weekday, evaluated in Europe/Berlin? */
+function isWithinOpeningHours(d: Date, openingHours: Record<string, { open: string; close: string }> | null): { inside: boolean; weekday: string; dayKey: string; hh: number; mm: number } | null {
+  if (!openingHours) return null;
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Berlin",
+    weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+  const parts = fmt.formatToParts(d);
+  const weekday = parts.find((p) => p.type === "weekday")?.value ?? "";
+  const hh = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const mm = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  const wdMap: Record<string, string> = { Sun: "su", Mon: "mo", Tue: "tu", Wed: "we", Thu: "th", Fri: "fr", Sat: "sa" };
+  const dayKey = wdMap[weekday] ?? "";
   const day = openingHours[dayKey];
-  if (!day) return false;
+  if (!day) return { inside: false, weekday, dayKey, hh, mm };
   const [oh, om] = day.open.split(":").map(Number);
   const [ch, cm] = day.close.split(":").map(Number);
-  const hh = d.getHours();
-  const mm = d.getMinutes();
   const nowMin = hh * 60 + mm;
-  return nowMin >= oh * 60 + om && nowMin <= ch * 60 + cm;
+  const inside = nowMin >= oh * 60 + om && nowMin <= ch * 60 + cm;
+  return { inside, weekday, dayKey, hh, mm };
 }
 
 async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
@@ -158,13 +166,13 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
     // Opening hours check
     const { data: settings } = await admin.from("settings").select("opening_hours").eq("restaurant_id", restaurantId).maybeSingle();
     const opening = (settings as any)?.opening_hours ?? null;
-    if (opening && !isWithinOpeningHours(startsAt, opening)) {
-      const dayNames = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
-      const dayKey = ["su","mo","tu","we","th","fr","sa"][startsAt.getDay()];
-      const hoursToday = opening[dayKey];
+    const openingCheck = isWithinOpeningHours(startsAt, opening);
+    if (openingCheck && !openingCheck.inside) {
+      const dayNamesDe: Record<string, string> = { mo: "Montag", tu: "Dienstag", we: "Mittwoch", th: "Donnerstag", fr: "Freitag", sa: "Samstag", su: "Sonntag" };
+      const hoursToday = opening?.[openingCheck.dayKey];
       const closedMsg = hoursToday
-        ? `Am ${dayNames[startsAt.getDay()]} haben wir von ${hoursToday.open} bis ${hoursToday.close} geöffnet.`
-        : `Am ${dayNames[startsAt.getDay()]} ist geschlossen.`;
+        ? `Am ${dayNamesDe[openingCheck.dayKey]} haben wir von ${hoursToday.open} bis ${hoursToday.close} geöffnet.`
+        : `Am ${dayNamesDe[openingCheck.dayKey]} ist geschlossen.`;
       return textContent({
         available: false,
         instruction: `ABSAGEN: Der gewünschte Zeitpunkt liegt außerhalb der Öffnungszeiten. ${closedMsg} Biete dem Gast eine Zeit innerhalb der Öffnungszeiten an.`,
@@ -252,7 +260,8 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
     // Opening hours check
     const { data: settings } = await admin.from("settings").select("opening_hours").eq("restaurant_id", restaurantId).maybeSingle();
     const opening = (settings as any)?.opening_hours ?? null;
-    if (opening && !isWithinOpeningHours(startsAt, opening)) {
+    const openingCheck2 = isWithinOpeningHours(startsAt, opening);
+    if (openingCheck2 && !openingCheck2.inside) {
       return textContent({
         instruction: "ABSAGEN: Zeitpunkt liegt außerhalb der Öffnungszeiten. Keine Reservierung angelegt.",
       });
