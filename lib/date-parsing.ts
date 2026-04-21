@@ -84,19 +84,28 @@ export function parseStartsAt(input: string, referenceNow = new Date()): ParseRe
     return { ok: false, error: "Uhrzeit konnte nicht erkannt werden. Bitte HH:MM oder 'HH Uhr' angeben." };
   }
 
-  // Determine target date
-  const base = new Date(referenceNow);
-  const targetDate = new Date(base);
+  // Determine target date — anchored in BERLIN local time (not the runtime's local tz)
+  // so "heute"/"morgen"/Wochentage are interpreted from the Berlin clock even when
+  // the server runs in UTC (Vercel).
+  const berlinParts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Berlin",
+    year: "numeric", month: "2-digit", day: "2-digit", weekday: "short",
+  }).formatToParts(referenceNow);
+  const bGet = (t: string) => berlinParts.find((p) => p.type === t)?.value ?? "";
+  let year = Number(bGet("year"));
+  let month = Number(bGet("month")); // 1-12
+  let day = Number(bGet("day"));
+  const wdShortToNum: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const todayWdBerlin = wdShortToNum[bGet("weekday")] ?? 0;
+
   let addedDays = 0;
 
   if (/\bheute\b|\btoday\b/.test(lower)) {
     // keep today
   } else if (/\bmorgen\b|\btomorrow\b/.test(lower)) {
-    targetDate.setDate(targetDate.getDate() + 1);
-    addedDays = 1;
+    day += 1; addedDays = 1;
   } else if (/\b\u00fcbermorgen\b|\bday after tomorrow\b/.test(lower)) {
-    targetDate.setDate(targetDate.getDate() + 2);
-    addedDays = 2;
+    day += 2; addedDays = 2;
   } else {
     // Look for weekday name
     let wd = -1;
@@ -104,37 +113,42 @@ export function parseStartsAt(input: string, referenceNow = new Date()): ParseRe
       if (new RegExp(`\\b${kw}\\b`, "i").test(lower)) { wd = v; break; }
     }
     if (wd >= 0) {
-      const todayWd = base.getDay();
-      let delta = (wd - todayWd + 7) % 7;
-      if (delta === 0) delta = 7; // "am Montag" if today is Mon → next Mon
-      targetDate.setDate(targetDate.getDate() + delta);
+      let delta = (wd - todayWdBerlin + 7) % 7;
+      if (delta === 0) delta = 7; // "am Montag" wenn heute Mo → naechster Mo
+      day += delta;
       addedDays = delta;
     }
     // Check for explicit date like "22.04" or "22.04.2026" or "22 April"
     const dotMatch = lower.match(/(\d{1,2})\.(\d{1,2})(?:\.(\d{2,4}))?/);
     const textMonth = lower.match(/(\d{1,2})\s+(januar|februar|m\u00e4rz|maerz|april|mai|juni|juli|august|september|oktober|november|dezember)/i);
     if (dotMatch) {
-      const day = Number(dotMatch[1]);
-      const mon = Number(dotMatch[2]);
-      let year = dotMatch[3] ? Number(dotMatch[3]) : base.getFullYear();
-      if (year < 100) year += 2000;
-      targetDate.setFullYear(year, mon - 1, day);
+      day = Number(dotMatch[1]);
+      month = Number(dotMatch[2]);
+      let y = dotMatch[3] ? Number(dotMatch[3]) : year;
+      if (y < 100) y += 2000;
+      year = y;
     } else if (textMonth) {
       const months = ["januar", "februar", "märz", "april", "mai", "juni", "juli", "august", "september", "oktober", "november", "dezember"];
-      const day = Number(textMonth[1]);
+      const d2 = Number(textMonth[1]);
       const monName = textMonth[2].toLowerCase().replace("maerz", "märz");
       const mon = months.indexOf(monName);
-      if (mon >= 0) targetDate.setMonth(mon, day);
+      if (mon >= 0) { month = mon + 1; day = d2; }
     }
   }
 
-  targetDate.setHours(hour, minute, 0, 0);
+  // Normalise day-of-month overflow (e.g. April 33 -> May 3) using UTC math (pure arithmetic).
+  const normalised = new Date(Date.UTC(year, month - 1, day));
+  const ny = normalised.getUTCFullYear();
+  const nm = normalised.getUTCMonth() + 1;
+  const nd = normalised.getUTCDate();
 
-  // Convert this (local Berlin time intent) into the correct UTC
-  // by building an ISO string with Berlin offset and parsing.
-  const provisional = new Date(targetDate); // represents the wall-clock we want
-  const offset = berlinOffset(provisional);
-  const iso = `${provisional.getFullYear()}-${String(provisional.getMonth() + 1).padStart(2, "0")}-${String(provisional.getDate()).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00${offset}`;
+  // Build a provisional Date at the Berlin wall-clock time via ISO + offset.
+  // We need the offset that will APPLY on that target date (handles DST transitions).
+  // First guess: offset of referenceNow. Then refine by re-checking at the constructed Date.
+  const probeIso = `${ny}-${String(nm).padStart(2, "0")}-${String(nd).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+00:00`;
+  const probe = new Date(probeIso);
+  const offset = berlinOffset(probe);
+  const iso = `${ny}-${String(nm).padStart(2, "0")}-${String(nd).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00${offset}`;
   const d = new Date(iso);
   return resultFrom(d, referenceNow, addedDays > 0 ? undefined : undefined);
 }
@@ -147,15 +161,22 @@ function resultFrom(d: Date, referenceNow: Date, warning?: string): ParseResult 
   let final = d;
   let finalWarning = warning;
   if (diffMinutes < -15) {
-    final = new Date(d);
-    final.setDate(final.getDate() + 1);
+    final = new Date(d.getTime() + 24 * 3600_000);
     finalWarning = "Zeitpunkt lag bereits in der Vergangenheit, wurde auf den naechsten Tag verschoben.";
   }
 
+  // IMPORTANT: on UTC-based runtimes (Vercel), final.getHours() returns UTC hours.
+  // Build the Berlin-local ISO via Intl.DateTimeFormat so the iso+offset pair is self-consistent.
   const offset = berlinOffset(final);
-  const iso =
-    `${final.getFullYear()}-${String(final.getMonth() + 1).padStart(2, "0")}-${String(final.getDate()).padStart(2, "0")}` +
-    `T${String(final.getHours()).padStart(2, "0")}:${String(final.getMinutes()).padStart(2, "0")}:00${offset}`;
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Berlin",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(final);
+  const g = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  // Intl may emit "24" for hour=00 in some locales; normalise.
+  const hh = g("hour") === "24" ? "00" : g("hour");
+  const iso = `${g("year")}-${g("month")}-${g("day")}T${hh}:${g("minute")}:${g("second")}${offset}`;
 
   const berlinLocal = new Intl.DateTimeFormat("de-DE", {
     timeZone: "Europe/Berlin",
