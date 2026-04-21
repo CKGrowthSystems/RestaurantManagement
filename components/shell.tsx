@@ -295,14 +295,19 @@ function EditableWordmark({ initial }: { initial: string }) {
   }
 
   if (editing) {
+    const dirty = value.trim() !== savedValue && value.trim().length > 0;
     return (
-      <form onSubmit={(e) => { e.preventDefault(); commit(); }}>
+      <form
+        onSubmit={(e) => { e.preventDefault(); commit(); }}
+        style={{ display: "flex", flexDirection: "column", gap: 6 }}
+      >
         <input
           ref={inputRef}
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => { if (e.key === "Escape") { setValue(savedValue); setEditing(false); } }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") { setValue(savedValue); setEditing(false); }
+          }}
           maxLength={40}
           style={{
             width: "100%",
@@ -318,6 +323,40 @@ function EditableWordmark({ initial }: { initial: string }) {
           placeholder="Restaurantname"
           disabled={saving}
         />
+        <div style={{ display: "flex", gap: 6 }}>
+          <button
+            type="submit"
+            disabled={saving || !dirty}
+            style={{
+              flex: 1, padding: "5px 8px", borderRadius: 6,
+              fontSize: 11, fontWeight: 600,
+              border: "1px solid var(--hi-accent)",
+              background: dirty ? "var(--hi-accent)" : "color-mix(in oklch, var(--hi-accent) 30%, var(--hi-surface))",
+              color: dirty ? "var(--hi-on-accent)" : "var(--hi-muted)",
+              cursor: dirty && !saving ? "pointer" : "not-allowed",
+              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4,
+            }}
+          >
+            <HiIcon kind="check" size={11} />
+            {saving ? "…" : "Speichern"}
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => { setValue(savedValue); setEditing(false); }}
+            style={{
+              padding: "5px 8px", borderRadius: 6,
+              fontSize: 11, fontWeight: 500,
+              border: "1px solid var(--hi-line)",
+              background: "transparent",
+              color: "var(--hi-muted-strong)",
+              cursor: "pointer",
+              display: "inline-flex", alignItems: "center", gap: 4,
+            }}
+          >
+            <HiIcon kind="x" size={10} /> Abbrechen
+          </button>
+        </div>
       </form>
     );
   }

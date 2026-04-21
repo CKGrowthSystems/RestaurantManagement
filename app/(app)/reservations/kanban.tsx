@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { HiBtn, HiCard, HiIcon, HiPill, HiSource } from "@/components/primitives";
 import type { Reservation, ReservationStatus, TableRow } from "@/lib/types";
 import { ReservationEditModal } from "./edit-modal";
@@ -10,16 +10,48 @@ const COLS: { key: ReservationStatus; tone: "warn" | "accent" | "success" | "neu
   { key: "Offen",         tone: "warn",    subtitle: "Bestätigung erforderlich" },
   { key: "Bestätigt",     tone: "accent",  subtitle: "Erwartet" },
   { key: "Eingetroffen",  tone: "success", subtitle: "Am Tisch" },
-  { key: "Abgeschlossen", tone: "neutral", subtitle: "Heute fertig" },
+  { key: "Abgeschlossen", tone: "neutral", subtitle: "Fertig" },
 ];
 
+/** Shift a YYYY-MM-DD string by N days (UTC math, calendar-accurate). */
+function shiftDate(date: string, days: number): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const out = new Date(Date.UTC(y, m - 1, d + days));
+  return `${out.getUTCFullYear()}-${String(out.getUTCMonth() + 1).padStart(2, "0")}-${String(out.getUTCDate()).padStart(2, "0")}`;
+}
+
 export function ReservationsKanban({
-  initial, tables,
-}: { initial: Reservation[]; tables: Pick<TableRow, "id" | "label">[] }) {
+  initial, tables, selectedDate, today, totalOpenGlobal,
+}: {
+  initial: Reservation[];
+  tables: Pick<TableRow, "id" | "label">[];
+  selectedDate: string;
+  today: string;
+  totalOpenGlobal: number;
+}) {
   const router = useRouter();
   const [items, setItems] = useState(initial);
   const [dragId, setDragId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Reservation | null>(null);
+
+  // When the server re-renders with a new `initial` (after a date nav),
+  // sync the local optimistic copy to avoid showing yesterday's items.
+  useEffect(() => { setItems(initial); }, [initial]);
+
+  function goToDate(next: string) {
+    const params = new URLSearchParams();
+    if (next !== today) params.set("date", next);
+    const qs = params.toString();
+    router.push(`/reservations${qs ? `?${qs}` : ""}`);
+  }
+
+  const isToday = selectedDate === today;
+  const [y, m, d] = selectedDate.split("-").map(Number);
+  const dayLabel = new Intl.DateTimeFormat("de-DE", {
+    weekday: "short", day: "numeric", month: "short",
+    timeZone: "Europe/Berlin",
+  }).format(new Date(Date.UTC(y, m - 1, d, 12)));
+  const otherDayOpen = !isToday ? totalOpenGlobal : 0;
 
   function label(id: string | null) {
     if (!id) return "—";
@@ -44,18 +76,75 @@ export function ReservationsKanban({
         padding: "14px 28px", display: "flex", gap: 10, alignItems: "center",
         borderBottom: "1px solid var(--hi-line)",
       }}>
+        {/* Date navigator: prev / [date+today shortcut] / next */}
         <div style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "5px 12px", background: "var(--hi-surface)",
-          border: "1px solid var(--hi-line)", borderRadius: 7, fontSize: 12,
+          display: "flex", alignItems: "stretch",
+          background: "var(--hi-surface)",
+          border: "1px solid var(--hi-line)", borderRadius: 7,
+          overflow: "hidden",
         }}>
-          <HiIcon kind="clock" size={13} style={{ color: "var(--hi-muted)" }} />
-          <span style={{ color: "var(--hi-ink)", fontWeight: 500 }}>
-            Heute, {new Date().toLocaleDateString("de-DE", { day: "numeric", month: "short" })}
-          </span>
+          <button
+            onClick={() => goToDate(shiftDate(selectedDate, -1))}
+            title="Vorheriger Tag"
+            style={navArrowStyle}
+          >
+            <HiIcon kind="chevron" size={12} style={{ transform: "rotate(180deg)" }} />
+          </button>
+          <div style={{
+            padding: "6px 10px", display: "flex", alignItems: "center", gap: 8,
+            borderLeft: "1px solid var(--hi-line)",
+            borderRight: "1px solid var(--hi-line)",
+            fontSize: 12,
+          }}>
+            <HiIcon kind="clock" size={13} style={{ color: "var(--hi-muted)" }} />
+            <span style={{ color: "var(--hi-ink)", fontWeight: 500 }}>
+              {isToday ? "Heute" : dayLabel}
+            </span>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => { if (e.target.value) goToDate(e.target.value); }}
+              style={{
+                background: "transparent", border: "none",
+                color: "var(--hi-muted)", fontSize: 11.5,
+                fontFamily: '"Geist Mono", ui-monospace, monospace',
+                outline: "none", cursor: "pointer", padding: 0,
+                colorScheme: "dark",
+              }}
+            />
+          </div>
+          <button
+            onClick={() => goToDate(shiftDate(selectedDate, 1))}
+            title="Nächster Tag"
+            style={navArrowStyle}
+          >
+            <HiIcon kind="chevron" size={12} />
+          </button>
         </div>
+
+        {!isToday && (
+          <button
+            onClick={() => goToDate(today)}
+            style={{
+              padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 500,
+              border: "1px solid var(--hi-accent)",
+              background: "color-mix(in oklch, var(--hi-accent) 12%, transparent)",
+              color: "var(--hi-accent)", cursor: "pointer",
+              display: "inline-flex", alignItems: "center", gap: 6,
+            }}
+          >
+            <HiIcon kind="arrow" size={11} /> Zurück zu Heute
+          </button>
+        )}
+
+        {otherDayOpen > 0 && (
+          <HiPill tone="warn" dot>
+            {otherDayOpen} offen (alle Tage)
+          </HiPill>
+        )}
+
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 11.5, color: "var(--hi-muted)" }}>Drag &amp; Drop zum Statuswechsel</span>
+        <span style={{ fontSize: 11.5, color: "var(--hi-muted)" }}>Drag &amp; Drop zum Statuswechsel · Stift-Icon = bearbeiten</span>
       </div>
 
       <div style={{
@@ -205,3 +294,9 @@ export function ReservationsKanban({
     </>
   );
 }
+
+const navArrowStyle: React.CSSProperties = {
+  width: 32, display: "flex", alignItems: "center", justifyContent: "center",
+  background: "transparent", border: "none", cursor: "pointer",
+  color: "var(--hi-muted-strong)",
+};
