@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { HiBtn, HiCard, HiIcon, HiPill, HiSource } from "@/components/primitives";
 import type { Reservation, ReservationStatus, TableRow } from "@/lib/types";
 import { ReservationEditModal } from "./edit-modal";
+import { useRealtimeList } from "@/lib/supabase/realtime";
 
 const COLS: { key: ReservationStatus; tone: "warn" | "accent" | "success" | "neutral"; subtitle: string }[] = [
   { key: "Offen",         tone: "warn",    subtitle: "Bestätigung erforderlich" },
@@ -22,21 +23,37 @@ function shiftDate(date: string, days: number): string {
 
 export function ReservationsKanban({
   initial, tables, selectedDate, today, totalOpenGlobal,
+  restaurantId, dayStartISO, dayEndISO,
 }: {
   initial: Reservation[];
   tables: Pick<TableRow, "id" | "label">[];
   selectedDate: string;
   today: string;
   totalOpenGlobal: number;
+  restaurantId: string;
+  dayStartISO: string;
+  dayEndISO: string;
 }) {
   const router = useRouter();
-  const [items, setItems] = useState(initial);
   const [dragId, setDragId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Reservation | null>(null);
+  const [pulseId, setPulseId] = useState<string | null>(null);
 
-  // When the server re-renders with a new `initial` (after a date nav),
-  // sync the local optimistic copy to avoid showing yesterday's items.
-  useEffect(() => { setItems(initial); }, [initial]);
+  // Real-time: neue Voice-KI-Buchungen / Updates / Stornos kommen live rein,
+  // ohne manuelles Refreshen. Events ausserhalb des aktuell ausgewaehlten
+  // Tages werden ignoriert — sonst wuerde eine Buchung fuer morgen beim
+  // Ansehen von heute aufploppen.
+  const [items, setItems] = useRealtimeList<Reservation>("reservations", restaurantId, initial, {
+    onInsert: (row) => {
+      const t = new Date(row.starts_at).getTime();
+      const inRange = t >= new Date(dayStartISO).getTime() && t < new Date(dayEndISO).getTime();
+      if (inRange) {
+        setPulseId(row.id);
+        setTimeout(() => setPulseId((id) => (id === row.id ? null : id)), 2500);
+      }
+      return inRange;
+    },
+  });
 
   function goToDate(next: string) {
     const params = new URLSearchParams();
@@ -144,7 +161,22 @@ export function ReservationsKanban({
         )}
 
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 11.5, color: "var(--hi-muted)" }}>Drag &amp; Drop zum Statuswechsel · Stift-Icon = bearbeiten</span>
+        <span style={{
+          display: "inline-flex", alignItems: "center", gap: 6,
+          padding: "3px 10px", borderRadius: 10,
+          background: "color-mix(in oklch, oklch(0.72 0.12 145) 12%, transparent)",
+          border: "1px solid color-mix(in oklch, oklch(0.72 0.12 145) 35%, var(--hi-line))",
+          color: "oklch(0.8 0.12 145)",
+          fontSize: 11, fontWeight: 500,
+        }}>
+          <span style={{
+            width: 7, height: 7, borderRadius: 4,
+            background: "oklch(0.72 0.12 145)",
+            animation: "hi-dot-pulse 1.6s ease-in-out infinite",
+          }} />
+          Live
+        </span>
+        <span style={{ fontSize: 11.5, color: "var(--hi-muted)" }}>Drag &amp; Drop · Stift = bearbeiten</span>
       </div>
 
       <div style={{
@@ -188,11 +220,17 @@ export function ReservationsKanban({
                     interactive
                     style={{
                       padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6,
-                      borderColor: r.auto_assigned && r.status === "Offen"
+                      borderColor: pulseId === r.id
+                        ? "var(--hi-accent)"
+                        : r.auto_assigned && r.status === "Offen"
                         ? "color-mix(in oklch, oklch(0.75 0.14 70) 50%, var(--hi-line))"
                         : r.status === "Offen"
                         ? "color-mix(in oklch, var(--hi-accent) 30%, var(--hi-line))"
                         : "var(--hi-line)",
+                      boxShadow: pulseId === r.id
+                        ? "0 0 0 4px color-mix(in oklch, var(--hi-accent) 20%, transparent)"
+                        : undefined,
+                      animation: pulseId === r.id ? "hi-pulse-fade 2.5s ease-out" : undefined,
                       cursor: "grab", position: "relative",
                     }}
                   >

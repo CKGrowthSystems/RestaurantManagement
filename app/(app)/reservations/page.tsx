@@ -110,6 +110,9 @@ export default async function ReservationsPage({
         selectedDate={selectedDate}
         today={today}
         totalOpenGlobal={openGlobal ?? 0}
+        restaurantId={restaurantId}
+        dayStartISO={startISO}
+        dayEndISO={endISO}
       />
     </div>
   );
