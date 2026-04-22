@@ -68,6 +68,7 @@ create table if not exists zones (
   bbox_y          int not null default 60,
   bbox_w          int not null default 300,
   bbox_h          int not null default 360,
+  polygon         jsonb, -- array of {x,y} relative to bbox_x/bbox_y. null = rectangle fallback
   color           text,
   created_at      timestamptz not null default now(),
   unique (restaurant_id, name)

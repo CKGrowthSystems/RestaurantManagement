@@ -38,12 +38,16 @@ export async function PATCH(request: Request) {
   if (Array.isArray(body.zones)) {
     for (const z of body.zones) {
       if (!z.id) continue;
-      await ctx.supabase.from("zones").update({
+      const zonePatch: Record<string, unknown> = {
         bbox_x: clamp(z.bbox_x, 0, 4000),
         bbox_y: clamp(z.bbox_y, 0, 4000),
         bbox_w: clamp(z.bbox_w, 40, 4000),
         bbox_h: clamp(z.bbox_h, 40, 4000),
-      }).eq("id", z.id).eq("restaurant_id", ctx.restaurantId);
+      };
+      if ("polygon" in z) {
+        zonePatch.polygon = sanitizeZonePolygon(z.polygon);
+      }
+      await ctx.supabase.from("zones").update(zonePatch).eq("id", z.id).eq("restaurant_id", ctx.restaurantId);
     }
   }
 
@@ -71,6 +75,18 @@ function clamp(n: unknown, min: number, max: number): number {
 }
 
 function sanitizePolygon(p: unknown): { x: number; y: number }[] | null {
+  if (!Array.isArray(p) || p.length < 3) return null;
+  const out: { x: number; y: number }[] = [];
+  for (const pt of p) {
+    const x = clamp((pt as any)?.x, 0, 4000);
+    const y = clamp((pt as any)?.y, 0, 4000);
+    out.push({ x, y });
+  }
+  return out.length >= 3 ? out : null;
+}
+
+function sanitizeZonePolygon(p: unknown): { x: number; y: number }[] | null {
+  if (p === null) return null;
   if (!Array.isArray(p) || p.length < 3) return null;
   const out: { x: number; y: number }[] = [];
   for (const pt of p) {

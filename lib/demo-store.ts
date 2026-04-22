@@ -33,10 +33,10 @@ function seed(): Store {
       room_polygon: null },
   ];
   const zones: Zone[] = [
-    { id: "z-innen",    restaurant_id: RESTAURANT_ID, floor_id: "f-eg", name: "Innenraum", sort_order: 0, release_minutes: null, bbox_x:  20, bbox_y: 60, bbox_w: 360, bbox_h: 360, color: null },
-    { id: "z-fenster",  restaurant_id: RESTAURANT_ID, floor_id: "f-eg", name: "Fenster",   sort_order: 1, release_minutes: null, bbox_x: 400, bbox_y: 60, bbox_w: 180, bbox_h: 360, color: null },
-    { id: "z-terrasse", restaurant_id: RESTAURANT_ID, floor_id: "f-eg", name: "Terrasse",  sort_order: 2, release_minutes: null, bbox_x: 600, bbox_y: 60, bbox_w: 300, bbox_h: 360, color: null },
-    { id: "z-loft",     restaurant_id: RESTAURANT_ID, floor_id: "f-og", name: "Loft",      sort_order: 0, release_minutes: null, bbox_x:  80, bbox_y: 60, bbox_w: 540, bbox_h: 300, color: null },
+    { id: "z-innen",    restaurant_id: RESTAURANT_ID, floor_id: "f-eg", name: "Innenraum", sort_order: 0, release_minutes: null, bbox_x:  20, bbox_y: 60, bbox_w: 360, bbox_h: 360, polygon: null, color: null },
+    { id: "z-fenster",  restaurant_id: RESTAURANT_ID, floor_id: "f-eg", name: "Fenster",   sort_order: 1, release_minutes: null, bbox_x: 400, bbox_y: 60, bbox_w: 180, bbox_h: 360, polygon: null, color: null },
+    { id: "z-terrasse", restaurant_id: RESTAURANT_ID, floor_id: "f-eg", name: "Terrasse",  sort_order: 2, release_minutes: null, bbox_x: 600, bbox_y: 60, bbox_w: 300, bbox_h: 360, polygon: null, color: null },
+    { id: "z-loft",     restaurant_id: RESTAURANT_ID, floor_id: "f-og", name: "Loft",      sort_order: 0, release_minutes: null, bbox_x:  80, bbox_y: 60, bbox_w: 540, bbox_h: 300, polygon: null, color: null },
   ];
   const tables: TableRow[] = [
     mk("T1", "z-innen",    2, "round",  false, "Fensterplatz",    60,  110),

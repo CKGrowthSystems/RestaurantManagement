@@ -27,19 +27,18 @@ interface Layout {
   room: {
     width: number; height: number;
     entrance_x: number; entrance_y: number; entrance_w: number; entrance_h: number;
-    polygon: RoomPoint[] | null;
   };
-  zones: Record<string, { bbox_x: number; bbox_y: number; bbox_w: number; bbox_h: number }>;
+  zones: Record<string, { bbox_x: number; bbox_y: number; bbox_w: number; bbox_h: number; polygon: RoomPoint[] | null }>;
   tables: Record<string, { pos_x: number; pos_y: number; zone_id: string | null; rotation: number }>;
 }
 
 type DragMode =
-  | { type: "table";         id: string; offsetX: number; offsetY: number }
-  | { type: "zone-move";     id: string; offsetX: number; offsetY: number }
-  | { type: "zone-resize";   id: string; corner: "nw" | "ne" | "sw" | "se"; startX: number; startY: number; start: { x: number; y: number; w: number; h: number } }
-  | { type: "entrance";      offsetX: number; offsetY: number }
-  | { type: "room-resize";   startX: number; startY: number; startW: number; startH: number }
-  | { type: "polygon-vertex"; index: number };
+  | { type: "table";               id: string; offsetX: number; offsetY: number }
+  | { type: "zone-move";            id: string; offsetX: number; offsetY: number }
+  | { type: "zone-resize";          id: string; corner: "nw" | "ne" | "sw" | "se"; startX: number; startY: number; start: { x: number; y: number; w: number; h: number } }
+  | { type: "entrance";             offsetX: number; offsetY: number }
+  | { type: "room-resize";          startX: number; startY: number; startW: number; startH: number }
+  | { type: "zone-polygon-vertex";  zoneId: string; index: number };
 
 /** Snap a coordinate to an 8-px grid in edit mode. */
 function snap(n: number): number { return Math.round(n / 8) * 8; }
@@ -76,13 +75,19 @@ export function FloorplanClient({
       entrance_y: activeFloor?.entrance_y ?? 440,
       entrance_w: activeFloor?.entrance_w ?? 60,
       entrance_h: activeFloor?.entrance_h ?? 20,
-      polygon: activeFloor?.room_polygon ?? null,
     },
-    zones: Object.fromEntries(floorZones.map((z) => [z.id, { bbox_x: z.bbox_x, bbox_y: z.bbox_y, bbox_w: z.bbox_w, bbox_h: z.bbox_h }])),
+    zones: Object.fromEntries(floorZones.map((z) => [z.id, { bbox_x: z.bbox_x, bbox_y: z.bbox_y, bbox_w: z.bbox_w, bbox_h: z.bbox_h, polygon: z.polygon ?? null }])),
     tables: Object.fromEntries(floorTables.map((t) => [t.id, { pos_x: t.pos_x, pos_y: t.pos_y, zone_id: t.zone_id, rotation: t.rotation ?? 0 }])),
   });
   const [layout, setLayout] = useState<Layout>(buildLayout);
-  useEffect(() => { setLayout(buildLayout()); setSelected(floorTables[0]?.id ?? null); }, [activeFloorId]);
+  // Rebuild layout wenn Server-Daten sich aendern (neue Zonen, Tische, Raumaenderungen)
+  // oder wenn der Raum gewechselt wird. Im Edit-Modus NICHT neu bauen, damit die
+  // noch nicht gespeicherten Aenderungen des Nutzers nicht verloren gehen.
+  useEffect(() => {
+    if (editMode) return;
+    setLayout(buildLayout());
+    setSelected((prev) => (prev && floorTables.some((t) => t.id === prev)) ? prev : (floorTables[0]?.id ?? null));
+  }, [activeFloorId, zones, tables, floors, editMode]);
   const [drag, setDrag] = useState<DragMode | null>(null);
   const now = new Date();
 
@@ -154,28 +159,47 @@ export function FloorplanClient({
         if (drag.corner === "ne") { w = Math.max(80, drag.start.w + dx); y = drag.start.y + dy; h = Math.max(80, drag.start.h - dy); }
         if (drag.corner === "sw") { x = drag.start.x + dx; w = Math.max(80, drag.start.w - dx); h = Math.max(80, drag.start.h + dy); }
         if (drag.corner === "nw") { x = drag.start.x + dx; y = drag.start.y + dy; w = Math.max(80, drag.start.w - dx); h = Math.max(80, drag.start.h - dy); }
-        next.zones = { ...next.zones, [drag.id]: { bbox_x: Math.max(0, Math.round(x)), bbox_y: Math.max(0, Math.round(y)), bbox_w: Math.round(w), bbox_h: Math.round(h) } };
+        next.zones = { ...next.zones, [drag.id]: { ...cur, bbox_x: Math.max(0, Math.round(x)), bbox_y: Math.max(0, Math.round(y)), bbox_w: Math.round(w), bbox_h: Math.round(h) } };
       } else if (drag.type === "entrance") {
         next.room = { ...next.room, entrance_x: Math.max(0, p.x - drag.offsetX), entrance_y: Math.max(0, p.y - drag.offsetY) };
       } else if (drag.type === "room-resize") {
         const dx = p.x - drag.startX, dy = p.y - drag.startY;
         next.room = { ...next.room, width: Math.max(400, drag.startW + dx), height: Math.max(300, drag.startH + dy) };
-      } else if (drag.type === "polygon-vertex" && next.room.polygon) {
-        // Erlaubt Verschieben ueber aktuelle Raumbegrenzung hinaus.
-        // Raum waechst automatisch mit (bleibt im unteren Grenze
-        // nie kleiner als 400x300, damit Toolbars Platz haben).
-        const poly = next.room.polygon.slice();
-        const sx = snap(Math.max(0, p.x));
-        const sy = snap(Math.max(0, p.y));
-        poly[drag.index] = { x: sx, y: sy };
-        // Expand room to encompass all polygon points (plus 20px padding)
-        const maxX = Math.max(...poly.map((pt) => pt.x), 400);
-        const maxY = Math.max(...poly.map((pt) => pt.y), 300);
-        next.room = {
-          ...next.room, polygon: poly,
-          width: Math.max(next.room.width, maxX + 20),
-          height: Math.max(next.room.height, maxY + 20),
+      } else if (drag.type === "zone-polygon-vertex") {
+        const cur = next.zones[drag.zoneId];
+        if (!cur || !cur.polygon) return prev;
+        // p ist in absoluten Raum-Pixelkoordinaten — Polygon-Punkte liegen
+        // RELATIV zur Zone (Koordinate = 0..bbox_w/h). Wir begrenzen sie
+        // NICHT auf die bbox, sondern lassen sie ueber die bbox hinauswachsen,
+        // und die bbox waechst automatisch mit.
+        const relX = snap(p.x - cur.bbox_x);
+        const relY = snap(p.y - cur.bbox_y);
+        const poly = cur.polygon.slice();
+        poly[drag.index] = { x: relX, y: relY };
+        // Normalise: wenn Punkt ins Minus faellt, Polygon + bbox shiften
+        const minX = Math.min(...poly.map((pt) => pt.x));
+        const minY = Math.min(...poly.map((pt) => pt.y));
+        let bx = cur.bbox_x, by = cur.bbox_y;
+        let shifted = poly;
+        if (minX < 0 || minY < 0) {
+          const dx = Math.min(0, minX);
+          const dy = Math.min(0, minY);
+          shifted = poly.map((pt) => ({ x: pt.x - dx, y: pt.y - dy }));
+          bx = cur.bbox_x + dx;
+          by = cur.bbox_y + dy;
+        }
+        // bbox_w/h auf groesste Ausdehnung erweitern
+        const maxX = Math.max(...shifted.map((pt) => pt.x));
+        const maxY = Math.max(...shifted.map((pt) => pt.y));
+        const nextZone = {
+          ...cur,
+          bbox_x: Math.max(0, bx),
+          bbox_y: Math.max(0, by),
+          bbox_w: Math.max(60, maxX),
+          bbox_h: Math.max(60, maxY),
+          polygon: shifted,
         };
+        next.zones = { ...next.zones, [drag.zoneId]: nextZone };
       }
       return next;
     });
@@ -197,7 +221,6 @@ export function FloorplanClient({
           entrance_y: layout.room.entrance_y,
           entrance_w: layout.room.entrance_w,
           entrance_h: layout.room.entrance_h,
-          room_polygon: layout.room.polygon,
         },
         zones: Object.entries(layout.zones).map(([id, z]) => ({ id, ...z })),
         tables: Object.entries(layout.tables).map(([id, t]) => ({ id, ...t })),
@@ -216,39 +239,41 @@ export function FloorplanClient({
     });
   }
 
-  function initPolygonFromRect() {
-    setLayout((prev) => ({
-      ...prev,
-      room: {
-        ...prev.room,
-        polygon: [
-          { x: 0, y: 0 },
-          { x: prev.room.width, y: 0 },
-          { x: prev.room.width, y: prev.room.height },
-          { x: 0, y: prev.room.height },
-        ],
-      },
-    }));
-  }
-  function clearPolygon() {
-    setLayout((prev) => ({ ...prev, room: { ...prev.room, polygon: null } }));
-  }
-  function insertPolygonVertex(afterIndex: number) {
+  // ---- Zone-Polygon ----
+  function initZonePolygonFromRect(zoneId: string) {
     setLayout((prev) => {
-      const poly = prev.room.polygon; if (!poly) return prev;
-      const a = poly[afterIndex];
-      const b = poly[(afterIndex + 1) % poly.length];
-      const mid = { x: snap((a.x + b.x) / 2), y: snap((a.y + b.y) / 2) };
-      const next = [...poly];
-      next.splice(afterIndex + 1, 0, mid);
-      return { ...prev, room: { ...prev.room, polygon: next } };
+      const cur = prev.zones[zoneId]; if (!cur) return prev;
+      const poly: RoomPoint[] = [
+        { x: 0, y: 0 },
+        { x: cur.bbox_w, y: 0 },
+        { x: cur.bbox_w, y: cur.bbox_h },
+        { x: 0, y: cur.bbox_h },
+      ];
+      return { ...prev, zones: { ...prev.zones, [zoneId]: { ...cur, polygon: poly } } };
     });
   }
-  function removePolygonVertex(index: number) {
+  function clearZonePolygon(zoneId: string) {
     setLayout((prev) => {
-      const poly = prev.room.polygon; if (!poly || poly.length <= 3) return prev;
-      const next = poly.filter((_, i) => i !== index);
-      return { ...prev, room: { ...prev.room, polygon: next } };
+      const cur = prev.zones[zoneId]; if (!cur) return prev;
+      return { ...prev, zones: { ...prev.zones, [zoneId]: { ...cur, polygon: null } } };
+    });
+  }
+  function insertZonePolygonVertex(zoneId: string, afterIndex: number) {
+    setLayout((prev) => {
+      const cur = prev.zones[zoneId]; if (!cur || !cur.polygon) return prev;
+      const a = cur.polygon[afterIndex];
+      const b = cur.polygon[(afterIndex + 1) % cur.polygon.length];
+      const mid = { x: snap((a.x + b.x) / 2), y: snap((a.y + b.y) / 2) };
+      const nextPoly = [...cur.polygon];
+      nextPoly.splice(afterIndex + 1, 0, mid);
+      return { ...prev, zones: { ...prev.zones, [zoneId]: { ...cur, polygon: nextPoly } } };
+    });
+  }
+  function removeZonePolygonVertex(zoneId: string, index: number) {
+    setLayout((prev) => {
+      const cur = prev.zones[zoneId]; if (!cur || !cur.polygon || cur.polygon.length <= 3) return prev;
+      const nextPoly = cur.polygon.filter((_, i) => i !== index);
+      return { ...prev, zones: { ...prev.zones, [zoneId]: { ...cur, polygon: nextPoly } } };
     });
   }
 
@@ -470,66 +495,76 @@ export function FloorplanClient({
               width={width} height={height}
               style={{ display: "block", position: "absolute", top: 0, left: 0 }}
             >
-              {layout.room.polygon && layout.room.polygon.length >= 3 ? (
-                <polygon
-                  points={layout.room.polygon.map((p) => `${p.x},${p.y}`).join(" ")}
-                  fill="rgba(255,255,255,0.01)"
-                  stroke="var(--hi-line)"
-                  strokeWidth="1.4"
-                  strokeDasharray={editMode ? "4 3" : "0"}
-                  strokeLinejoin="round"
-                />
-              ) : (
-                <rect x={0.5} y={0.5} width={width - 1} height={height - 1} rx={10}
-                      fill="none" stroke="var(--hi-line)" strokeWidth="1.2" strokeDasharray={editMode ? "4 3" : "0"} />
-              )}
-              {/* Polygon-vertex and edge-midpoint handles (edit mode only) */}
-              {editMode && layout.room.polygon && layout.room.polygon.map((pt, i) => {
-                const next = layout.room.polygon![(i + 1) % layout.room.polygon!.length];
-                const mid = { x: (pt.x + next.x) / 2, y: (pt.y + next.y) / 2 };
-                return (
-                  <g key={`poly-${i}`}>
-                    {/* Edge midpoint — click to insert a new vertex */}
-                    <circle
-                      cx={mid.x} cy={mid.y} r={6}
-                      fill="color-mix(in oklch, var(--hi-accent) 55%, transparent)"
-                      stroke="var(--hi-bg)" strokeWidth={1.5}
-                      style={{ cursor: "copy", opacity: 0.6 }}
-                      onClick={(e) => { e.stopPropagation(); insertPolygonVertex(i); }}
-                    />
-                    {/* Vertex handle — drag to move, double-click to remove */}
-                    <rect
-                      x={pt.x - 6} y={pt.y - 6} width={12} height={12} rx={2}
-                      fill="var(--hi-accent)" stroke="var(--hi-bg)" strokeWidth="1.5"
-                      style={{ cursor: "grab" }}
-                      onPointerDown={(e) => {
-                        e.stopPropagation();
-                        (e.target as Element).setPointerCapture?.(e.pointerId);
-                        setDrag({ type: "polygon-vertex", index: i });
-                      }}
-                      onDoubleClick={(e) => { e.stopPropagation(); removePolygonVertex(i); }}
-                    />
-                  </g>
-                );
-              })}
+              {/* Raum immer als Rechteck */}
+              <rect
+                x={0.5} y={0.5} width={width - 1} height={height - 1} rx={10}
+                fill="none" stroke="var(--hi-line)" strokeWidth="1.2"
+                strokeDasharray={editMode ? "4 3" : "0"}
+              />
               {floorZones.map((z) => {
                 const L = layout.zones[z.id]; if (!L) return null;
+                const hasPoly = L.polygon && L.polygon.length >= 3;
                 return (
                   <g key={z.id}>
-                    <rect
-                      x={L.bbox_x} y={L.bbox_y} width={L.bbox_w} height={L.bbox_h} rx={8}
-                      fill="rgba(255,255,255,0.015)"
-                      stroke={editMode ? "var(--hi-accent)" : "var(--hi-line)"}
-                      strokeWidth={editMode ? 1.6 : 1.2}
-                      style={{ cursor: editMode ? "grab" : "default" }}
-                      onPointerDown={(e) => {
-                        if (!editMode) return;
-                        e.stopPropagation();
-                        (e.target as Element).setPointerCapture?.(e.pointerId);
-                        const p = canvasPoint(e);
-                        setDrag({ type: "zone-move", id: z.id, offsetX: p.x - L.bbox_x, offsetY: p.y - L.bbox_y });
-                      }}
-                    />
+                    {hasPoly ? (
+                      <polygon
+                        points={L.polygon!.map((pt) => `${L.bbox_x + pt.x},${L.bbox_y + pt.y}`).join(" ")}
+                        fill="rgba(255,255,255,0.015)"
+                        stroke={editMode ? "var(--hi-accent)" : "var(--hi-line)"}
+                        strokeWidth={editMode ? 1.6 : 1.2}
+                        strokeLinejoin="round"
+                        style={{ cursor: editMode ? "grab" : "default" }}
+                        onPointerDown={(e) => {
+                          if (!editMode) return;
+                          e.stopPropagation();
+                          (e.target as Element).setPointerCapture?.(e.pointerId);
+                          const p = canvasPoint(e);
+                          setDrag({ type: "zone-move", id: z.id, offsetX: p.x - L.bbox_x, offsetY: p.y - L.bbox_y });
+                        }}
+                      />
+                    ) : (
+                      <rect
+                        x={L.bbox_x} y={L.bbox_y} width={L.bbox_w} height={L.bbox_h} rx={8}
+                        fill="rgba(255,255,255,0.015)"
+                        stroke={editMode ? "var(--hi-accent)" : "var(--hi-line)"}
+                        strokeWidth={editMode ? 1.6 : 1.2}
+                        style={{ cursor: editMode ? "grab" : "default" }}
+                        onPointerDown={(e) => {
+                          if (!editMode) return;
+                          e.stopPropagation();
+                          (e.target as Element).setPointerCapture?.(e.pointerId);
+                          const p = canvasPoint(e);
+                          setDrag({ type: "zone-move", id: z.id, offsetX: p.x - L.bbox_x, offsetY: p.y - L.bbox_y });
+                        }}
+                      />
+                    )}
+                    {/* Polygon-Vertex-Handles (nur Edit + wenn Polygon vorhanden) */}
+                    {editMode && hasPoly && L.polygon!.map((pt, i) => {
+                      const nextPt = L.polygon![(i + 1) % L.polygon!.length];
+                      const mid = { x: L.bbox_x + (pt.x + nextPt.x) / 2, y: L.bbox_y + (pt.y + nextPt.y) / 2 };
+                      return (
+                        <g key={`zp-${z.id}-${i}`}>
+                          <circle
+                            cx={mid.x} cy={mid.y} r={5}
+                            fill="color-mix(in oklch, var(--hi-accent) 55%, transparent)"
+                            stroke="var(--hi-bg)" strokeWidth={1.5}
+                            style={{ cursor: "copy", opacity: 0.7 }}
+                            onClick={(e) => { e.stopPropagation(); insertZonePolygonVertex(z.id, i); }}
+                          />
+                          <rect
+                            x={L.bbox_x + pt.x - 5} y={L.bbox_y + pt.y - 5} width={10} height={10} rx={2}
+                            fill="var(--hi-accent)" stroke="var(--hi-bg)" strokeWidth="1.5"
+                            style={{ cursor: "grab" }}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              (e.target as Element).setPointerCapture?.(e.pointerId);
+                              setDrag({ type: "zone-polygon-vertex", zoneId: z.id, index: i });
+                            }}
+                            onDoubleClick={(e) => { e.stopPropagation(); removeZonePolygonVertex(z.id, i); }}
+                          />
+                        </g>
+                      );
+                    })}
                     <text x={L.bbox_x + 10} y={L.bbox_y - 8} fontSize="11"
                           fontFamily="Geist Mono, monospace" fontWeight="500"
                           fill="var(--hi-muted)" letterSpacing="1">
@@ -537,6 +572,29 @@ export function FloorplanClient({
                     </text>
                     {editMode && (
                       <>
+                        {/* Polygon-Toggle */}
+                        <g
+                          style={{ cursor: "pointer" }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (hasPoly) clearZonePolygon(z.id);
+                            else initZonePolygonFromRect(z.id);
+                          }}
+                          onPointerDown={(e) => e.stopPropagation()}
+                        >
+                          <rect
+                            x={L.bbox_x + L.bbox_w - 68} y={L.bbox_y - 18}
+                            width={18} height={14} rx={3}
+                            fill={hasPoly ? "color-mix(in oklch, var(--hi-accent) 28%, var(--hi-surface-raised))" : "var(--hi-surface-raised)"}
+                            stroke={hasPoly ? "var(--hi-accent)" : "var(--hi-line)"} strokeWidth="1"
+                          />
+                          <text
+                            x={L.bbox_x + L.bbox_w - 59} y={L.bbox_y - 8}
+                            fontSize="9"
+                            fill={hasPoly ? "var(--hi-accent)" : "var(--hi-muted-strong)"}
+                            textAnchor="middle" fontWeight="600"
+                          >⬠</text>
+                        </g>
                         {/* Rename-Icon */}
                         <g
                           style={{ cursor: "pointer" }}
@@ -572,7 +630,8 @@ export function FloorplanClient({
                         </g>
                       </>
                     )}
-                    {editMode && (["nw","ne","sw","se"] as const).map((corner) => {
+                    {/* Rechteck-Resize-Handles nur wenn KEIN Polygon aktiv ist */}
+                    {editMode && !hasPoly && (["nw","ne","sw","se"] as const).map((corner) => {
                       const cx = corner.includes("w") ? L.bbox_x : L.bbox_x + L.bbox_w;
                       const cy = corner.includes("n") ? L.bbox_y : L.bbox_y + L.bbox_h;
                       return (
@@ -693,21 +752,6 @@ export function FloorplanClient({
                 <span className="mono" style={{ color: "var(--hi-accent)" }}>{width}×{height}px</span> Planfläche · scrollbar wenn größer als Fenster
               </div>
               <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-                {!layout.room.polygon ? (
-                  <button onClick={initPolygonFromRect} style={miniBtnStyle}>
-                    <HiIcon kind="edit" size={11} /> Raum als Polygon
-                  </button>
-                ) : (
-                  <>
-                    <span style={{ ...miniBtnStyle, background: "color-mix(in oklch, var(--hi-accent) 25%, transparent)", borderColor: "var(--hi-accent)", color: "var(--hi-accent)" }}>
-                      Polygon · {layout.room.polygon.length} Punkte
-                    </span>
-                    <button onClick={clearPolygon} style={miniBtnStyle}>
-                      <HiIcon kind="x" size={11} /> Zu Rechteck
-                    </button>
-                  </>
-                )}
-                <span style={{ width: 1, height: 18, background: "var(--hi-line)" }} />
                 <button
                   onClick={() => setLayout((p) => ({ ...p, room: { ...p.room, width: Math.max(400, p.room.width - 100) } }))}
                   style={miniBtnStyle} title="Raum schmaler"
@@ -732,11 +776,9 @@ export function FloorplanClient({
                   <HiIcon kind="floor" size={11} /> Bereiche verwalten ({zones.length})
                 </button>
               </div>
-              {layout.room.polygon && (
-                <div style={{ marginTop: 6, fontSize: 10.5, color: "var(--hi-muted)", lineHeight: 1.4 }}>
-                  Punkt ziehen = verschieben · „+" an Kante = neuer Punkt · Doppelklick = entfernen
-                </div>
-              )}
+              <div style={{ marginTop: 6, fontSize: 10.5, color: "var(--hi-muted)", lineHeight: 1.4 }}>
+                ⬠-Icon an einer Zone = Polygon-Modus · Punkt ziehen = verschieben · „+" an Kante = neuer Punkt · Doppelklick = entfernen
+              </div>
             </div>
           )}
 

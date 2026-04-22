@@ -267,6 +267,7 @@ function EditableWordmark({ initial }: { initial: string }) {
   const [savedValue, setSavedValue] = useState(initial);
   const [saving, setSaving] = useState(false);
   const [hover, setHover] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { setValue(initial); setSavedValue(initial); }, [initial]);
@@ -276,19 +277,28 @@ function EditableWordmark({ initial }: { initial: string }) {
     const next = value.trim();
     if (!next || next === savedValue) { setEditing(false); setValue(savedValue); return; }
     setSaving(true);
+    setError(null);
     try {
       const res = await fetch("/api/settings", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ branding: { public_name: next } }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const msg = String(body.error ?? `HTTP ${res.status}`);
+        // Typischer Fall: branding-Spalte existiert nicht -> Migration 0005 fehlt
+        if (msg.toLowerCase().includes("column") && msg.toLowerCase().includes("branding")) {
+          throw new Error("DB-Migration 0005 fehlt: settings.branding existiert noch nicht in Supabase. Bitte supabase/migrations/0005_whitelabel_rotation_polygon.sql im SQL-Editor ausfuehren.");
+        }
+        throw new Error(msg);
+      }
       setSavedValue(next);
       setEditing(false);
       router.refresh();
-    } catch {
-      setValue(savedValue);
-      setEditing(false);
+    } catch (err: any) {
+      setError(err?.message ?? "Speichern fehlgeschlagen");
+      // NICHT zumachen — User soll den Fehler sehen koennen und ggf. erneut versuchen
     } finally {
       setSaving(false);
     }
@@ -323,6 +333,17 @@ function EditableWordmark({ initial }: { initial: string }) {
           placeholder="Restaurantname"
           disabled={saving}
         />
+        {error && (
+          <div style={{
+            fontSize: 10.5, lineHeight: 1.35,
+            padding: "5px 7px", borderRadius: 5,
+            background: "color-mix(in oklch, oklch(0.66 0.2 25) 12%, transparent)",
+            color: "oklch(0.82 0.14 25)",
+            border: "1px solid color-mix(in oklch, oklch(0.66 0.2 25) 35%, var(--hi-line))",
+          }}>
+            {error}
+          </div>
+        )}
         <div style={{ display: "flex", gap: 6 }}>
           <button
             type="submit"

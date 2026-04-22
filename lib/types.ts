@@ -47,6 +47,7 @@ export interface Zone {
   bbox_y: number;
   bbox_w: number;
   bbox_h: number;
+  polygon: RoomPoint[] | null; // relative to bbox_x/bbox_y; null = rectangle
   color: string | null;
 }
 
