@@ -456,6 +456,55 @@ export function FloorplanClient({
         </div>
       </div>
 
+      {/* Edit-Toolbar: horizontale Fixleiste oberhalb des Canvas,
+          damit sie keine Zonen oder Tische im oberen linken Bereich verdeckt */}
+      {editMode && (
+        <div style={{
+          padding: "10px 28px",
+          borderBottom: "1px solid var(--hi-line)",
+          background: "color-mix(in oklch, var(--hi-accent) 10%, var(--hi-surface))",
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+          fontSize: 11.5, color: "var(--hi-ink)",
+        }}>
+          <span style={{ fontWeight: 600, color: "var(--hi-ink)" }}>Plan bearbeiten</span>
+          <span className="mono" style={{
+            padding: "2px 7px", borderRadius: 5,
+            background: "color-mix(in oklch, var(--hi-accent) 15%, var(--hi-surface-raised))",
+            color: "var(--hi-accent)", fontSize: 11, fontWeight: 500,
+          }}>
+            {width}×{height}px
+          </span>
+          <span style={{ width: 1, height: 18, background: "var(--hi-line)" }} />
+          <button
+            onClick={() => setLayout((p) => ({ ...p, room: { ...p.room, width: Math.max(400, p.room.width - 100) } }))}
+            style={miniBtnStyle} title="Raum schmaler"
+          >Breite −100</button>
+          <button
+            onClick={() => setLayout((p) => ({ ...p, room: { ...p.room, width: p.room.width + 100 } }))}
+            style={miniBtnStyle} title="Raum breiter"
+          >Breite +100</button>
+          <button
+            onClick={() => setLayout((p) => ({ ...p, room: { ...p.room, height: Math.max(300, p.room.height - 100) } }))}
+            style={miniBtnStyle} title="Raum niedriger"
+          >Höhe −100</button>
+          <button
+            onClick={() => setLayout((p) => ({ ...p, room: { ...p.room, height: p.room.height + 100 } }))}
+            style={miniBtnStyle} title="Raum höher"
+          >Höhe +100</button>
+          <span style={{ width: 1, height: 18, background: "var(--hi-line)" }} />
+          <button onClick={addZone} style={{ ...miniBtnStyle, background: "var(--hi-accent)", color: "var(--hi-on-accent)", borderColor: "var(--hi-accent)", fontWeight: 600 }}>
+            <HiIcon kind="plus" size={11} /> Bereich anlegen
+          </button>
+          <button onClick={() => setShowZoneManager(true)} style={miniBtnStyle}>
+            <HiIcon kind="floor" size={11} /> Bereiche verwalten ({zones.length})
+          </button>
+          <span style={{ flex: 1 }} />
+          <span style={{ color: "var(--hi-muted-strong)", fontSize: 10.5, lineHeight: 1.4, maxWidth: 440, textAlign: "right" }}>
+            Tische, Bereiche, Eingang ziehen · Eckpunkte skalieren · ⬠ an Zone = Polygon-Modus (Punkte ziehen, „+" einfügen, Doppelklick entfernen)
+          </span>
+        </div>
+      )}
+
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         {/* Panel-Container: relativ, nicht scrollbar — enthaelt Scroll-Child + fixe Overlays */}
         <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
@@ -733,54 +782,6 @@ export function FloorplanClient({
             </div>
           )}
           </div>{/* /scroll-container */}
-
-          {/* Fixe Overlays — auf dem Panel, nicht mitscrollen */}
-          {editMode && (
-            <div style={{
-              position: "absolute", top: 12, left: 12, zIndex: 5,
-              padding: "10px 14px", borderRadius: 10,
-              background: "color-mix(in oklch, var(--hi-accent) 15%, var(--hi-surface))",
-              border: "1px solid var(--hi-accent)",
-              boxShadow: "0 4px 14px rgba(0,0,0,0.25)",
-              fontSize: 11.5, color: "var(--hi-ink)",
-              maxWidth: 420,
-            }}>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>Plan bearbeiten</div>
-              <div style={{ color: "var(--hi-muted-strong)", lineHeight: 1.45 }}>
-                Tische, Bereiche und Eingang ziehen · Eckpunkte zum Skalieren · unten rechts = Raumgröße.
-                <br />
-                <span className="mono" style={{ color: "var(--hi-accent)" }}>{width}×{height}px</span> Planfläche · scrollbar wenn größer als Fenster
-              </div>
-              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-                <button
-                  onClick={() => setLayout((p) => ({ ...p, room: { ...p.room, width: Math.max(400, p.room.width - 100) } }))}
-                  style={miniBtnStyle} title="Raum schmaler"
-                >Breite −100</button>
-                <button
-                  onClick={() => setLayout((p) => ({ ...p, room: { ...p.room, width: p.room.width + 100 } }))}
-                  style={miniBtnStyle} title="Raum breiter"
-                >Breite +100</button>
-                <button
-                  onClick={() => setLayout((p) => ({ ...p, room: { ...p.room, height: Math.max(300, p.room.height - 100) } }))}
-                  style={miniBtnStyle} title="Raum niedriger"
-                >Höhe −100</button>
-                <button
-                  onClick={() => setLayout((p) => ({ ...p, room: { ...p.room, height: p.room.height + 100 } }))}
-                  style={miniBtnStyle} title="Raum höher"
-                >Höhe +100</button>
-                <span style={{ width: 1, height: 18, background: "var(--hi-line)" }} />
-                <button onClick={addZone} style={{ ...miniBtnStyle, background: "var(--hi-accent)", color: "var(--hi-on-accent)", borderColor: "var(--hi-accent)", fontWeight: 600 }}>
-                  <HiIcon kind="plus" size={11} /> Bereich anlegen
-                </button>
-                <button onClick={() => setShowZoneManager(true)} style={miniBtnStyle}>
-                  <HiIcon kind="floor" size={11} /> Bereiche verwalten ({zones.length})
-                </button>
-              </div>
-              <div style={{ marginTop: 6, fontSize: 10.5, color: "var(--hi-muted)", lineHeight: 1.4 }}>
-                ⬠-Icon an einer Zone = Polygon-Modus · Punkt ziehen = verschieben · „+" an Kante = neuer Punkt · Doppelklick = entfernen
-              </div>
-            </div>
-          )}
 
           {/* Rotation panel for selected table in edit mode */}
           {editMode && selectedTable && (
