@@ -299,10 +299,18 @@ export function HiTable({
               color: s.fg,
             }}>
               {isCenter && (isSingleRow || r === 0) && (
-                <>
-                  <span style={{ fontSize: fontLabel, fontWeight: 600 }}>{label}</span>
-                  <span style={{ fontSize: fontSub, opacity: 0.8, fontWeight: 400, color: s.sub }}>{seats}p</span>
-                </>
+                <div
+                  style={{
+                    display: "flex", flexDirection: "column", alignItems: "center",
+                    // Gegen-Rotation, damit Label + Seat-Count horizontal
+                    // bleiben, auch wenn der Tisch rotiert ist.
+                    transform: rotation ? `rotate(${-rotation}deg)` : undefined,
+                    transformOrigin: "center center",
+                  }}
+                >
+                  <span style={{ fontSize: fontLabel, fontWeight: 600, lineHeight: 1.1 }}>{label}</span>
+                  <span style={{ fontSize: fontSub, opacity: 0.8, fontWeight: 400, color: s.sub, lineHeight: 1.1 }}>{seats}p</span>
+                </div>
               )}
             </div>
           );
@@ -317,6 +325,9 @@ export function HiTable({
             fontSize: 10, fontWeight: 700,
             padding: "2px 7px", borderRadius: 10,
             letterSpacing: 0.3,
+            // Badge soll unabhaengig von der Tisch-Rotation lesbar sein.
+            transform: rotation ? `rotate(${-rotation}deg)` : undefined,
+            transformOrigin: "center center",
           }}
         >
           {countdown}
