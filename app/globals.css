@@ -130,3 +130,15 @@ table.hi-table tbody tr:hover { background: rgba(255,255,255,0.02); }
   background: rgba(255, 255, 255, 0.05) !important;
   color: var(--hi-ink) !important;
 }
+
+/* ============================================================
+   Tablet-Querformat Optimierungen
+   - Search in Topbar verstecken wenn wenig Platz
+   - Padding enger
+   ============================================================ */
+@media (max-width: 1100px) {
+  .hi-topbar-search { display: none !important; }
+}
+@media (max-width: 900px) {
+  .hi-topbar { padding-left: 16px !important; padding-right: 16px !important; }
+}
