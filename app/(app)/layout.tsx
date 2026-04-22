@@ -29,13 +29,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Apply tenant theme via data-theme on <html>.
   const theme = ctx.restaurant?.theme ?? "default";
 
-  const brandingName = (settingsRes?.data as any)?.branding?.public_name as string | undefined;
+  const branding = (settingsRes?.data as any)?.branding as { public_name?: string; primary_color?: string; accent_color?: string } | null;
+  const brandingName = branding?.public_name;
   const fallbackName = ctx.restaurant?.name ?? "Rhodos";
   const effectiveName = (brandingName && brandingName.trim()) || fallbackName;
 
+  // Branding-Farben als CSS-Variablen-Override (wirkt global, weil
+  // var(--hi-accent) an vielen Stellen genutzt wird).
+  const brandingStyle: React.CSSProperties = {
+    display: "flex", minHeight: "100vh", background: "var(--hi-bg)",
+    ...(branding?.primary_color ? { ["--hi-accent" as any]: branding.primary_color } : {}),
+    ...(branding?.accent_color  ? { ["--hi-on-accent" as any]: "#ffffff" } : {}),
+  };
+
   return (
     <div
-      style={{ display: "flex", minHeight: "100vh", background: "var(--hi-bg)" }}
+      style={brandingStyle}
       data-restaurant-theme={theme}
     >
       <Sidebar

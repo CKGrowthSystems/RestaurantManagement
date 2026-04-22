@@ -22,10 +22,9 @@ import type { Reservation, TableRow, Zone } from "@/lib/types";
  *   }
  *
  * Table assignment rules:
- *   - perfect-fit (party size ≤ seats ≤ party size + 1, zone matches) → auto-confirm
- *   - larger table or wrong zone → create as "Offen" + auto_assigned flag; the owner
- *     sees it in the "Offen" column and must explicitly confirm
- *   - no candidate → unassigned, manual flow
+ *   - any candidate found → auto-confirm ("Bestätigt"), approval_reason set if a
+ *     larger table was used (shown as a note on the card, but no gate anymore)
+ *   - no candidate → unassigned Bestätigt (team assigns manually)
  */
 export async function POST(request: Request) {
   const auth = await authenticateWebhook(request);
@@ -138,9 +137,8 @@ export async function POST(request: Request) {
     instruction = `ABSAGEN: Es sind keine Tische im System. Keine Reservierung anlegen. Gast zurück an Restaurant verweisen: 07803 926970.`;
   } else if (!assignedTable) {
     instruction = `ABSAGEN: Für ${party} Personen am ${dateStr} um ${timeStr} ist kein Tisch verfügbar. Dem Gast sagen, dass die Reservierung nicht möglich ist.`;
-  } else if (decision.status === "Offen" && decision.autoAssigned) {
-    instruction = `NOTIEREN: Reservierung angelegt, aber ein größerer Tisch (${zoneName}) wurde zugewiesen. Dem Gast sagen: "Ich habe Sie notiert, der Tisch wird noch bestätigt, Sie bekommen eine Rückmeldung."`;
   } else {
+    // Neue Geschaeftsregel: jede erfolgreiche Buchung ist direkt „Bestaetigt".
     instruction = `FERTIG: Reservierung fest für ${body.guest_name}, ${party} Personen, ${dateStr} ${timeStr}, Bereich ${zoneName}. Gast bestätigen: "Perfekt, ich habe Sie fest eingetragen, wir freuen uns auf Sie."`;
   }
 
@@ -151,7 +149,7 @@ export async function POST(request: Request) {
     assigned_table: assignedTable
       ? { id: assignedTable.id, label: assignedTable.label, zone: zoneName, seats: assignedTable.seats }
       : null,
-    requires_approval: decision.autoAssigned && decision.status === "Offen",
+    requires_approval: false,
     approval_reason: decision.approvalReason,
     instruction,
     message: decision.reasonForAI,

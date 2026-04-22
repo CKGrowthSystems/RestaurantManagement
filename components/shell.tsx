@@ -281,40 +281,6 @@ export function Topbar({
         </h1>
         {subtitle && <div style={{ fontSize: 12, color: "var(--hi-muted)", marginTop: 2 }}>{subtitle}</div>}
       </div>
-      <div
-        className="hi-topbar-search"
-        style={{
-          display: "flex", alignItems: "center", gap: 8,
-          background: "var(--hi-surface)",
-          border: "1px solid var(--hi-line)",
-          borderRadius: 8, padding: "6px 12px", width: 260,
-        }}
-      >
-        <HiIcon kind="search" size={14} style={{ color: "var(--hi-muted)" }} />
-        <span style={{ fontSize: 12.5, color: "var(--hi-muted)" }}>Suchen…</span>
-        <span
-          className="mono"
-          style={{
-            marginLeft: "auto", fontSize: 10, color: "var(--hi-muted)",
-            padding: "1px 5px", background: "rgba(255,255,255,0.04)",
-            borderRadius: 4, border: "1px solid var(--hi-line)",
-          }}
-        >
-          ⌘K
-        </span>
-      </div>
-      <button
-        style={{
-          width: 32, height: 32, borderRadius: 8,
-          background: "var(--hi-surface)", border: "1px solid var(--hi-line)",
-          color: "var(--hi-muted-strong)", cursor: "pointer",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          position: "relative",
-        }}
-      >
-        <HiIcon kind="bell" size={14} />
-        <span style={{ position: "absolute", top: 6, right: 6, width: 7, height: 7, borderRadius: 4, background: "var(--hi-accent)" }} />
-      </button>
       {right}
     </header>
   );

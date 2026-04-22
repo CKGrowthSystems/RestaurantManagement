@@ -83,13 +83,17 @@ export function bestCandidate(opts: Parameters<typeof rankCandidates>[0]) {
 
 /**
  * Decide auto-assignment result:
- *   - exact match     → assign + Bestätigt
- *   - larger-table    → assign + Offen + auto_assigned + approval_reason
- *   - no candidate    → no table + Offen (team has to pick manually)
+ * - any candidate found  → assign + **Bestaetigt** (immer)
+ * - no candidate         → tableId null + Bestaetigt (ohne Tisch)
+ *
+ * Geschaeftsregel: Neue Reservierungen gehen automatisch auf „Bestätigt".
+ * Die frueher vorhandene „Offen"-Spalte ist abgeschafft.
+ * approvalReason wird trotzdem gesetzt, falls ein groesserer Tisch
+ * zugewiesen wurde — dient als Hinweis im Kartentext, nicht als Gate.
  */
 export function autoAssign(opts: Parameters<typeof rankCandidates>[0]): {
   tableId: string | null;
-  status: "Bestätigt" | "Offen";
+  status: "Bestätigt";
   autoAssigned: boolean;
   approvalReason: string | null;
   reasonForAI: string;
@@ -99,7 +103,7 @@ export function autoAssign(opts: Parameters<typeof rankCandidates>[0]): {
 
   if (!best) {
     return {
-      tableId: null, status: "Offen", autoAssigned: false, approvalReason: null,
+      tableId: null, status: "Bestätigt", autoAssigned: false, approvalReason: null,
       reasonForAI: "Kein passender Tisch frei – manuelle Zuordnung nötig.",
     };
   }
@@ -112,10 +116,10 @@ export function autoAssign(opts: Parameters<typeof rankCandidates>[0]): {
   }
 
   const reason = best.surplus >= 2
-    ? `Größerer Tisch (${best.table.seats} Plätze für ${opts.partySize} Personen) zugewiesen – bitte bestätigen.`
-    : "Tisch außerhalb Wunsch-Bereich zugewiesen – bitte bestätigen.";
+    ? `Größerer Tisch (${best.table.seats} Plätze für ${opts.partySize} Personen) zugewiesen.`
+    : "Tisch außerhalb Wunsch-Bereich zugewiesen.";
   return {
-    tableId: best.table.id, status: "Offen", autoAssigned: true, approvalReason: reason,
-    reasonForAI: `Tisch ${best.table.label} vorgeschlagen (Bestätigung nötig).`,
+    tableId: best.table.id, status: "Bestätigt", autoAssigned: true, approvalReason: reason,
+    reasonForAI: `Tisch ${best.table.label} zugewiesen.`,
   };
 }

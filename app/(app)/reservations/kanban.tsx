@@ -9,7 +9,6 @@ import { ReservationEditModal } from "./edit-modal";
 import { useRealtimeList } from "@/lib/supabase/realtime";
 
 const COLS: { key: ReservationStatus; tone: "warn" | "accent" | "success" | "neutral"; subtitle: string }[] = [
-  { key: "Offen",         tone: "warn",    subtitle: "Bestätigung erforderlich" },
   { key: "Bestätigt",     tone: "accent",  subtitle: "Erwartet" },
   { key: "Eingetroffen",  tone: "success", subtitle: "Am Tisch" },
   { key: "Abgeschlossen", tone: "neutral", subtitle: "Fertig" },
@@ -91,8 +90,8 @@ export function ReservationsKanban({
   // Live berechnete Counts aus aktuellem Kanban-State. Reagiert sofort
   // auf Drag-Statuswechsel, Edit-Modal-Aenderungen, Stornos, Realtime-Inserts.
   const totalCount = items.length;
-  const openCount = items.filter((r) => r.status === "Offen").length;
-  const subtitle = `${isToday ? "Heute" : dayLabel} · ${totalCount} Reservierung${totalCount === 1 ? "" : "en"}${openCount ? ` · ${openCount} warten auf Bestätigung` : ""}`;
+  const pendingFlagged = items.filter((r) => r.auto_assigned && r.approval_reason && r.status === "Bestätigt").length;
+  const subtitle = `${isToday ? "Heute" : dayLabel} · ${totalCount} Reservierung${totalCount === 1 ? "" : "en"}${pendingFlagged ? ` · ${pendingFlagged} mit Hinweis` : ""}`;
 
   return (
     <>
@@ -238,10 +237,8 @@ export function ReservationsKanban({
                       padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6,
                       borderColor: pulseId === r.id
                         ? "var(--hi-accent)"
-                        : r.auto_assigned && r.status === "Offen"
+                        : r.auto_assigned && r.approval_reason
                         ? "color-mix(in oklch, oklch(0.75 0.14 70) 50%, var(--hi-line))"
-                        : r.status === "Offen"
-                        ? "color-mix(in oklch, var(--hi-accent) 30%, var(--hi-line))"
                         : "var(--hi-line)",
                       boxShadow: pulseId === r.id
                         ? "0 0 0 4px color-mix(in oklch, var(--hi-accent) 20%, transparent)"
@@ -266,7 +263,7 @@ export function ReservationsKanban({
                     >
                       <HiIcon kind="edit" size={11} />
                     </button>
-                    {r.auto_assigned && r.status === "Offen" && r.approval_reason && (
+                    {r.auto_assigned && r.approval_reason && r.status !== "Abgeschlossen" && r.status !== "Storniert" && (
                       <div style={{
                         padding: "4px 8px", borderRadius: 6, fontSize: 10.5,
                         background: "color-mix(in oklch, oklch(0.75 0.14 70) 15%, transparent)",
@@ -277,9 +274,9 @@ export function ReservationsKanban({
                         ⚠︎ {r.approval_reason}
                       </div>
                     )}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, paddingRight: 32 }}>
                       <span className="mono" style={{ fontSize: 14, fontWeight: 600, color: "var(--hi-ink)", letterSpacing: -0.3 }}>
-                        {new Date(r.starts_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+                        {new Date(r.starts_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" })}
                       </span>
                       <span className="mono" style={{
                         fontSize: 11, color: "var(--hi-muted)",
@@ -296,9 +293,9 @@ export function ReservationsKanban({
                     )}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 2 }}>
                       <HiSource src={r.source} />
-                      {r.status === "Offen" && (
-                        <HiBtn kind="primary" size="sm" icon="check" onClick={() => move(r.id, "Bestätigt")}>
-                          Bestätigen
+                      {r.status === "Bestätigt" && (
+                        <HiBtn kind="outline" size="sm" icon="check" onClick={() => move(r.id, "Eingetroffen")}>
+                          Eingetroffen
                         </HiBtn>
                       )}
                     </div>
@@ -313,7 +310,7 @@ export function ReservationsKanban({
                     Leer
                   </div>
                 )}
-                {col.key === "Offen" && (
+                {col.key === "Bestätigt" && (
                   <Link href="/reservations/new">
                     <button style={{
                       width: "100%",

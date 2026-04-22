@@ -433,7 +433,7 @@ export function FloorplanClient({
           <HiIcon kind="clock" size={14} style={{ color: "var(--hi-muted)" }} />
           <span style={{ fontSize: 11, color: "var(--hi-muted)" }}>Zeitpunkt</span>
           <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: "var(--hi-ink)" }}>
-            {now.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+            {now.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" })}
           </span>
           <span style={{ width: 1, height: 16, background: "var(--hi-line)" }} />
           <HiPill tone={editMode ? "warn" : "accent"} dot>{editMode ? "Bearbeiten" : "Jetzt"}</HiPill>
@@ -876,7 +876,7 @@ export function FloorplanClient({
                           color: active ? "var(--hi-accent)" : "var(--hi-muted-strong)",
                           fontWeight: 500, marginBottom: 3,
                         }}>
-                          {start.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} – {end.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+                          {start.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" })} – {end.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" })}
                         </div>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                           <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)" }}>

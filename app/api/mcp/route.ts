@@ -47,7 +47,7 @@ const TOOLS = [
   {
     name: "create_reservation",
     description:
-      "Legt eine Reservierung an. NUR aufrufen, nachdem check_availability erfolgreich war (available=true) UND Name/Telefonnummer vom Gast bestätigt sind. Gibt 'instruction' zurück (FERTIG / NOTIEREN / ABSAGEN).",
+      "Legt eine Reservierung an. NUR aufrufen, nachdem check_availability erfolgreich war (available=true) UND Name/Telefonnummer vom Gast bestätigt sind. Jede erfolgreiche Buchung wird automatisch als 'Bestätigt' angelegt. Gibt 'instruction' zurück (FERTIG / ABSAGEN).",
     inputSchema: {
       type: "object",
       properties: {
@@ -330,9 +330,8 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
     let instruction: string;
     if (!assignedTable) {
       instruction = `ABSAGEN: Kein Tisch verfügbar. Reservierung nicht angelegt.`;
-    } else if (decision.status === "Offen" && decision.autoAssigned) {
-      instruction = `NOTIEREN: Reservierung vorgemerkt (größerer Tisch zugewiesen). Sage dem Gast: "Ich habe Sie notiert, ein Kollege bestätigt zeitnah."`;
     } else {
+      // Neue Geschaeftsregel: jede erfolgreiche Buchung ist direkt „Bestaetigt".
       instruction = `FERTIG: Reservierung fest für ${args.guest_name}, ${party} Personen, ${parsed.berlinLocal}, Bereich ${zoneName ?? "Innenraum"}. Bestätige: "Perfekt, ich habe Sie fest eingetragen, wir freuen uns auf Sie."`;
     }
     return textContent({ reservation_id: reservation.id, status: decision.status, parsed_date: parsed.berlinLocal, instruction });
