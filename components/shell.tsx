@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/browser";
 import { HiBtn, HiIcon, HiPill, RhodosWordmark, type IconKind } from "./primitives";
+import { useRealtimeCount } from "@/lib/supabase/realtime";
 
 const NAV: { href: string; id: string; label: string; icon: IconKind }[] = [
   { href: "/dashboard",    id: "dashboard",    label: "Dashboard",      icon: "grid" },
@@ -16,16 +17,34 @@ const NAV: { href: string; id: string; label: string; icon: IconKind }[] = [
 ];
 
 export function Sidebar({
-  displayName, role, restaurantName, badges,
+  displayName, role, restaurantName, badges, restaurantId,
 }: {
   displayName: string;
   role: string;
   restaurantName: string;
   badges?: Partial<Record<string, { n: number; tone?: "accent" | "neutral" }>>;
+  restaurantId: string;
 }) {
   const pathname = usePathname() || "";
   const router = useRouter();
   const initials = displayName.slice(0, 2).toUpperCase();
+
+  // Live-Zahlen: Badges sollen sofort reagieren, wenn Voice-KI eine neue
+  // Reservierung anlegt, der Nutzer im Kanban etwas storniert, usw.
+  const openReservations = useRealtimeCount("reservations", restaurantId, badges?.reservations?.n ?? 0, {
+    filter: (q) => q.eq("status", "Offen"),
+    additionalFilterString: "status=Offen",
+  });
+  const voiceCallsToday = useRealtimeCount("voice_calls", restaurantId, badges?.voice?.n ?? 0, {
+    filter: (q) => q.gte("started_at", new Date(Date.now() - 24 * 3600_000).toISOString()),
+    additionalFilterString: "last-24h",
+  });
+
+  const liveBadges: typeof badges = {
+    ...badges,
+    reservations: { n: openReservations, tone: badges?.reservations?.tone },
+    voice: { n: voiceCallsToday, tone: badges?.voice?.tone ?? "accent" },
+  };
 
   async function logout() {
     const supabase = createClient();
@@ -59,7 +78,7 @@ export function Sidebar({
       <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
         {NAV.map((n) => {
           const active = pathname === n.href || pathname.startsWith(n.href + "/");
-          const badge = badges?.[n.id];
+          const badge = liveBadges?.[n.id];
           return (
             <Link
               key={n.id}

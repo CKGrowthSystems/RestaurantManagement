@@ -1,8 +1,5 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/tenant";
-import { Topbar } from "@/components/shell";
-import { HiBtn } from "@/components/primitives";
 import { ReservationsKanban } from "./kanban";
 import type { Reservation, TableRow } from "@/lib/types";
 
@@ -83,27 +80,8 @@ export default async function ReservationsPage({
       .eq("status", "Offen"),
   ]);
 
-  const open = (reservations ?? []).filter((r: Reservation) => r.status === "Offen").length;
-  const isToday = selectedDate === today;
-
-  // Human-friendly subtitle ("Heute · 12 Reservierungen …" oder "Do, 24. April · 5 Reservierungen")
-  const [y, m, d] = selectedDate.split("-").map(Number);
-  const dayLabel = new Intl.DateTimeFormat("de-DE", {
-    weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Berlin",
-  }).format(new Date(Date.UTC(y, m - 1, d, 12)));
-  const headline = isToday ? "Heute" : dayLabel;
-
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
-      <Topbar
-        title="Reservierungen"
-        subtitle={`${headline} · ${(reservations ?? []).length} Reservierungen${open ? ` · ${open} warten auf Bestätigung` : ""}`}
-        right={
-          <Link href="/reservations/new">
-            <HiBtn kind="primary" size="md" icon="plus">Neue Reservierung</HiBtn>
-          </Link>
-        }
-      />
       <ReservationsKanban
         initial={(reservations ?? []) as Reservation[]}
         tables={(tables ?? []) as Pick<TableRow, "id" | "label">[]}

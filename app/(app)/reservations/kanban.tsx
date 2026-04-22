@@ -3,6 +3,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { HiBtn, HiCard, HiIcon, HiPill, HiSource } from "@/components/primitives";
+import { Topbar } from "@/components/shell";
 import type { Reservation, ReservationStatus, TableRow } from "@/lib/types";
 import { ReservationEditModal } from "./edit-modal";
 import { useRealtimeList } from "@/lib/supabase/realtime";
@@ -87,8 +88,23 @@ export function ReservationsKanban({
     router.refresh();
   }
 
+  // Live berechnete Counts aus aktuellem Kanban-State. Reagiert sofort
+  // auf Drag-Statuswechsel, Edit-Modal-Aenderungen, Stornos, Realtime-Inserts.
+  const totalCount = items.length;
+  const openCount = items.filter((r) => r.status === "Offen").length;
+  const subtitle = `${isToday ? "Heute" : dayLabel} · ${totalCount} Reservierung${totalCount === 1 ? "" : "en"}${openCount ? ` · ${openCount} warten auf Bestätigung` : ""}`;
+
   return (
     <>
+      <Topbar
+        title="Reservierungen"
+        subtitle={subtitle}
+        right={
+          <Link href="/reservations/new">
+            <HiBtn kind="primary" size="md" icon="plus">Neue Reservierung</HiBtn>
+          </Link>
+        }
+      />
       <div style={{
         padding: "14px 28px", display: "flex", gap: 10, alignItems: "center",
         borderBottom: "1px solid var(--hi-line)",

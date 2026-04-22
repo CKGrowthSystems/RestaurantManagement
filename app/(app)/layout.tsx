@@ -42,6 +42,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         displayName={ctx.displayName}
         role={ctx.role}
         restaurantName={effectiveName}
+        restaurantId={restaurantId}
         badges={{
           reservations: { n: openCount ?? 0 },
           voice: { n: voiceCount ?? 0, tone: "accent" },

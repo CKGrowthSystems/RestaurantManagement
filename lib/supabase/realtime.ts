@@ -73,3 +73,53 @@ export function useRealtimeList<T extends { id: string }>(
 
   return [items, setItems];
 }
+
+/**
+ * Reaktive Anzahl fuer einen Supabase-Query. Initial-Wert kommt vom Server,
+ * bei jedem Change-Event wird die Zahl per HEAD-Query neu geholt (billig).
+ * Geeignet fuer Sidebar-Badges und Header-Subtitles, wo wir nur den Count
+ * brauchen — die vollen Rows im Browser zu halten waere verschwenderisch.
+ */
+export function useRealtimeCount(
+  table: string,
+  restaurantId: string | null,
+  initial: number,
+  opts?: { filter?: (q: any) => any; additionalFilterString?: string }
+): number {
+  const [count, setCount] = useState(initial);
+  useEffect(() => { setCount(initial); }, [initial]);
+
+  useEffect(() => {
+    if (!restaurantId) return;
+    const supabase = createClient();
+
+    async function refetch() {
+      let q = supabase
+        .from(table)
+        .select("*", { count: "exact", head: true })
+        .eq("restaurant_id", restaurantId);
+      if (opts?.filter) q = opts.filter(q);
+      const { count: n } = await q;
+      setCount(n ?? 0);
+    }
+
+    const channel = supabase
+      .channel(`rt-count-${table}-${restaurantId}-${opts?.additionalFilterString ?? ""}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table,
+          filter: `restaurant_id=eq.${restaurantId}`,
+        },
+        () => { refetch(); }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [table, restaurantId, opts?.additionalFilterString]);
+
+  return count;
+}

@@ -279,8 +279,12 @@ export function HiTable({
     >
       {Array.from({ length: rows }).map((_, r) =>
         Array.from({ length: cols }).map((__, c) => {
-          const isCenter = r === Math.floor(rows / 2) && c === Math.floor((cols - 1) / 2);
-          const isSingleRow = rows === 1;
+          // Label wird immer auf der oberen Reihe in der mittleren Spalte
+          // gerendert. Alte Logik verlangte `isCenter && (isSingleRow || r === 0)`
+          // was sich bei multi-row-Tischen (2x2, 3x2, ...) ausgeschlossen hat
+          // und dazu fuehrte, dass z. B. 6p- und 8p-Tische keinen Namen zeigten.
+          const labelCol = Math.floor((cols - 1) / 2);
+          const isLabelCell = r === 0 && c === labelCol;
           const radius =
             shape === "round"
               ? (cols === 1 && rows === 1) ? "50%" : cornerRadius(c, r, cols, rows, "round")
@@ -298,7 +302,7 @@ export function HiTable({
               boxShadow: highlight ? "0 0 0 3px color-mix(in oklch, var(--hi-accent) 25%, transparent)" : "none",
               color: s.fg,
             }}>
-              {isCenter && (isSingleRow || r === 0) && (
+              {isLabelCell && (
                 <div
                   style={{
                     display: "flex", flexDirection: "column", alignItems: "center",
