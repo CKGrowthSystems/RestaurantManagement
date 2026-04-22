@@ -100,10 +100,12 @@ export function FloorplanClient({
     : [];
 
   function canvasPoint(e: React.PointerEvent | React.MouseEvent): { x: number; y: number } {
+    // canvasRef jetzt = innere Plan-Wrapper mit echten Pixel-Dimensionen.
+    // Dadurch sind Zeiger-Koordinaten 1:1 unsere Layout-Koordinaten.
     const rect = canvasRef.current!.getBoundingClientRect();
     return {
-      x: Math.round((e.clientX - rect.left) * (layout.room.width / rect.width)),
-      y: Math.round((e.clientY - rect.top)  * (layout.room.height / rect.height)),
+      x: Math.round(e.clientX - rect.left),
+      y: Math.round(e.clientY - rect.top),
     };
   }
   function zoneAt(x: number, y: number): string | null {
@@ -157,11 +159,21 @@ export function FloorplanClient({
         const dx = p.x - drag.startX, dy = p.y - drag.startY;
         next.room = { ...next.room, width: Math.max(400, drag.startW + dx), height: Math.max(300, drag.startH + dy) };
       } else if (drag.type === "polygon-vertex" && next.room.polygon) {
+        // Erlaubt Verschieben ueber aktuelle Raumbegrenzung hinaus.
+        // Raum waechst automatisch mit (bleibt im unteren Grenze
+        // nie kleiner als 400x300, damit Toolbars Platz haben).
         const poly = next.room.polygon.slice();
-        const sx = snap(Math.max(0, Math.min(next.room.width, p.x)));
-        const sy = snap(Math.max(0, Math.min(next.room.height, p.y)));
+        const sx = snap(Math.max(0, p.x));
+        const sy = snap(Math.max(0, p.y));
         poly[drag.index] = { x: sx, y: sy };
-        next.room = { ...next.room, polygon: poly };
+        // Expand room to encompass all polygon points (plus 20px padding)
+        const maxX = Math.max(...poly.map((pt) => pt.x), 400);
+        const maxY = Math.max(...poly.map((pt) => pt.y), 300);
+        next.room = {
+          ...next.room, polygon: poly,
+          width: Math.max(next.room.width, maxX + 20),
+          height: Math.max(next.room.height, maxY + 20),
+        };
       }
       return next;
     });
@@ -364,33 +376,43 @@ export function FloorplanClient({
       </div>
 
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-        <div
-          ref={canvasRef}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerLeave={onPointerUp}
-          style={{
-            flex: 1, position: "relative",
-            background:
-              "radial-gradient(circle at 30% 40%, rgba(168,115,47,0.04), transparent 60%)," +
-              "repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(255,255,255,0.025) 39px, rgba(255,255,255,0.025) 40px)," +
-              "repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(255,255,255,0.025) 39px, rgba(255,255,255,0.025) 40px)," +
-              "var(--hi-bg)",
-            overflow: "hidden",
-            touchAction: "none",
-            cursor: drag ? "grabbing" : "default",
-          }}
-        >
+        {/* Panel-Container: relativ, nicht scrollbar — enthaelt Scroll-Child + fixe Overlays */}
+        <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+          {/* Scroll-Container: faellt in den Panel-Container, scrollt bei grossem Raum */}
+          <div
+            style={{
+              position: "absolute", inset: 0,
+              overflow: "auto",
+              background:
+                "radial-gradient(circle at 30% 40%, rgba(168,115,47,0.04), transparent 60%)," +
+                "repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(255,255,255,0.025) 39px, rgba(255,255,255,0.025) 40px)," +
+                "repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(255,255,255,0.025) 39px, rgba(255,255,255,0.025) 40px)," +
+                "var(--hi-bg)",
+              touchAction: "none",
+              cursor: drag ? "grabbing" : "default",
+              padding: 40,
+            }}
+          >
           {!activeFloor ? (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--hi-muted)" }}>
               Kein Raum ausgewählt.
             </div>
           ) : (
+            <div
+              ref={canvasRef}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerLeave={onPointerUp}
+              style={{
+                position: "relative",
+                width, height,
+                margin: "0 auto",
+                boxShadow: editMode ? "0 0 0 1px color-mix(in oklch, var(--hi-accent) 30%, transparent)" : "none",
+              }}
+            >
             <svg
-              width="100%" height="100%"
-              viewBox={`0 0 ${width} ${height}`}
-              preserveAspectRatio="xMidYMid meet"
-              style={{ position: "absolute", inset: 0 }}
+              width={width} height={height}
+              style={{ display: "block", position: "absolute", top: 0, left: 0 }}
             >
               {layout.room.polygon && layout.room.polygon.length >= 3 ? (
                 <polygon
@@ -521,11 +543,9 @@ export function FloorplanClient({
                 />
               )}
             </svg>
-          )}
-
-          <div style={{ position: "absolute", inset: 0 }}>
-            {activeFloor && floorTables.map((t) => {
-              const local = layout.tables[t.id] ?? { pos_x: t.pos_x, pos_y: t.pos_y, zone_id: t.zone_id };
+            {/* Tisch-Overlay — absolut in Pixel-Koordinaten innerhalb des Plans */}
+            {floorTables.map((t) => {
+              const local = layout.tables[t.id] ?? { pos_x: t.pos_x, pos_y: t.pos_y, zone_id: t.zone_id, rotation: t.rotation ?? 0 };
               const zoneLayout = local.zone_id ? layout.zones[local.zone_id] : null;
               const absX = zoneLayout ? zoneLayout.bbox_x + local.pos_x : local.pos_x;
               const absY = zoneLayout ? zoneLayout.bbox_y + local.pos_y : local.pos_y;
@@ -534,8 +554,8 @@ export function FloorplanClient({
               return (
                 <div key={t.id} style={{
                   position: "absolute",
-                  left: `calc(${(absX / width) * 100}% - ${unitSize / 2}px)`,
-                  top: `calc(${(absY / height) * 100}% - ${unitSize / 2}px)`,
+                  left: absX - unitSize / 2,
+                  top: absY - unitSize / 2,
                   touchAction: "none",
                 }}>
                   <div
@@ -550,30 +570,36 @@ export function FloorplanClient({
                     <HiTable
                       shape={t.shape} seats={t.seats} label={t.label}
                       status={status} size={unitSize} countdown={countdown}
-                      rotation={(layout.tables[t.id]?.rotation ?? t.rotation) ?? 0}
-                      highlight={(editMode && selected === t.id) || (!editMode && selected === t.id)}
-                      onClick={editMode ? () => setSelected(t.id) : () => setSelected(t.id)}
+                      rotation={local.rotation ?? 0}
+                      highlight={selected === t.id}
+                      onClick={() => setSelected(t.id)}
                     />
                   </div>
                 </div>
               );
             })}
-          </div>
+            </div>
+          )}
+          </div>{/* /scroll-container */}
 
+          {/* Fixe Overlays — auf dem Panel, nicht mitscrollen */}
           {editMode && (
             <div style={{
-              position: "absolute", top: 12, left: 12,
+              position: "absolute", top: 12, left: 12, zIndex: 5,
               padding: "10px 14px", borderRadius: 10,
               background: "color-mix(in oklch, var(--hi-accent) 15%, var(--hi-surface))",
               border: "1px solid var(--hi-accent)",
+              boxShadow: "0 4px 14px rgba(0,0,0,0.25)",
               fontSize: 11.5, color: "var(--hi-ink)",
-              maxWidth: 400,
+              maxWidth: 420,
             }}>
               <div style={{ fontWeight: 600, marginBottom: 4 }}>Plan bearbeiten</div>
               <div style={{ color: "var(--hi-muted-strong)", lineHeight: 1.45 }}>
                 Tische, Bereiche und Eingang ziehen · Eckpunkte zum Skalieren · unten rechts = Raumgröße.
+                <br />
+                <span className="mono" style={{ color: "var(--hi-accent)" }}>{width}×{height}px</span> Planfläche · scrollbar wenn größer als Fenster
               </div>
-              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
                 {!layout.room.polygon ? (
                   <button onClick={initPolygonFromRect} style={miniBtnStyle}>
                     <HiIcon kind="edit" size={11} /> Raum als Polygon
@@ -588,6 +614,23 @@ export function FloorplanClient({
                     </button>
                   </>
                 )}
+                <span style={{ width: 1, height: 18, background: "var(--hi-line)" }} />
+                <button
+                  onClick={() => setLayout((p) => ({ ...p, room: { ...p.room, width: Math.max(400, p.room.width - 100) } }))}
+                  style={miniBtnStyle} title="Raum schmaler"
+                >Breite −100</button>
+                <button
+                  onClick={() => setLayout((p) => ({ ...p, room: { ...p.room, width: p.room.width + 100 } }))}
+                  style={miniBtnStyle} title="Raum breiter"
+                >Breite +100</button>
+                <button
+                  onClick={() => setLayout((p) => ({ ...p, room: { ...p.room, height: Math.max(300, p.room.height - 100) } }))}
+                  style={miniBtnStyle} title="Raum niedriger"
+                >Höhe −100</button>
+                <button
+                  onClick={() => setLayout((p) => ({ ...p, room: { ...p.room, height: p.room.height + 100 } }))}
+                  style={miniBtnStyle} title="Raum höher"
+                >Höhe +100</button>
               </div>
               {layout.room.polygon && (
                 <div style={{ marginTop: 6, fontSize: 10.5, color: "var(--hi-muted)", lineHeight: 1.4 }}>
@@ -600,7 +643,7 @@ export function FloorplanClient({
           {/* Rotation panel for selected table in edit mode */}
           {editMode && selectedTable && (
             <div style={{
-              position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)",
+              position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)", zIndex: 5,
               padding: "8px 12px", borderRadius: 10,
               background: "var(--hi-surface)",
               border: "1px solid var(--hi-line)",
@@ -626,7 +669,7 @@ export function FloorplanClient({
               </button>
             </div>
           )}
-        </div>
+        </div>{/* /panel-container */}
 
         {!editMode && (
           <aside style={{
