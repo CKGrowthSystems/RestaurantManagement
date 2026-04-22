@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClient } from "./supabase/server";
 import { createDemoClient } from "./supabase/demo";
 import { isDemoMode } from "./env";
@@ -12,7 +13,15 @@ export interface TenantContext {
   restaurant: { name: string; theme: string; logo_url: string | null };
 }
 
-export async function getTenantContext(): Promise<TenantContext | null> {
+/**
+ * Per-Request Cache via React `cache()`:
+ * Innerhalb EINER Server-Render-Pass (Middleware -> Layout -> Page) wird
+ * diese Funktion nur 1x ausgefuehrt. Damit fallen redundante Supabase
+ * Auth-Checks + Membership-Queries weg und die Navigation wird deutlich
+ * schneller. Beim naechsten Request (z. B. nach Klick auf einen NavLink)
+ * ist der Cache frisch.
+ */
+export const getTenantContext = cache(async (): Promise<TenantContext | null> => {
   if (isDemoMode()) {
     const supabase = createDemoClient();
     return {
@@ -48,4 +57,4 @@ export async function getTenantContext(): Promise<TenantContext | null> {
     displayName: (membership.display_name as string) || user.email?.split("@")[0] || "Team",
     restaurant,
   };
-}
+});

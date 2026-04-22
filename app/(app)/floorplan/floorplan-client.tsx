@@ -250,6 +250,57 @@ export function FloorplanClient({
     });
   }
 
+  async function addZone() {
+    if (!activeFloorId) return;
+    const name = prompt("Name des Bereichs, z. B. Terrasse, Fenster, Bar:");
+    if (!name) return;
+    // Default-Position: oben links im aktuellen Raum, freie Stelle suchen
+    const existing = Object.values(layout.zones);
+    const bbox_w = 240;
+    const bbox_h = 200;
+    const offset = existing.length * 24;
+    const res = await fetch("/api/zones", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name,
+        floor_id: activeFloorId,
+        bbox_x: 40 + offset,
+        bbox_y: 80 + offset,
+        bbox_w,
+        bbox_h,
+      }),
+    });
+    if (!res.ok) {
+      alert((await res.json().catch(() => ({}))).error ?? "Bereich konnte nicht angelegt werden");
+      return;
+    }
+    router.refresh();
+  }
+
+  async function renameZone(zoneId: string, currentName: string) {
+    const name = prompt("Neuer Name:", currentName);
+    if (!name || name === currentName) return;
+    const res = await fetch(`/api/zones/${zoneId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? "Umbenennen fehlgeschlagen"); return; }
+    router.refresh();
+  }
+
+  async function deleteZone(zoneId: string, zoneName: string) {
+    const tablesInZone = floorTables.filter((t) => t.zone_id === zoneId).length;
+    const msg = tablesInZone > 0
+      ? `Bereich „${zoneName}" löschen? ${tablesInZone} Tisch${tablesInZone === 1 ? "" : "e"} in diesem Bereich werden zonenlos (bleiben erhalten).`
+      : `Bereich „${zoneName}" wirklich löschen?`;
+    if (!confirm(msg)) return;
+    const res = await fetch(`/api/zones/${zoneId}`, { method: "DELETE" });
+    if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? "Löschen fehlgeschlagen"); return; }
+    router.refresh();
+  }
+
   async function addFloor() {
     const name = prompt("Name des neuen Raums, z. B. Obergeschoss:");
     if (!name) return;
@@ -479,6 +530,43 @@ export function FloorplanClient({
                           fill="var(--hi-muted)" letterSpacing="1">
                       {z.name.toUpperCase()}
                     </text>
+                    {editMode && (
+                      <>
+                        {/* Rename-Icon */}
+                        <g
+                          style={{ cursor: "pointer" }}
+                          onClick={(e) => { e.stopPropagation(); renameZone(z.id, z.name); }}
+                          onPointerDown={(e) => e.stopPropagation()}
+                        >
+                          <rect
+                            x={L.bbox_x + L.bbox_w - 46} y={L.bbox_y - 18}
+                            width={18} height={14} rx={3}
+                            fill="var(--hi-surface-raised)" stroke="var(--hi-line)" strokeWidth="1"
+                          />
+                          <text
+                            x={L.bbox_x + L.bbox_w - 37} y={L.bbox_y - 8}
+                            fontSize="9" fill="var(--hi-muted-strong)" textAnchor="middle"
+                          >✎</text>
+                        </g>
+                        {/* Delete-Icon */}
+                        <g
+                          style={{ cursor: "pointer" }}
+                          onClick={(e) => { e.stopPropagation(); deleteZone(z.id, z.name); }}
+                          onPointerDown={(e) => e.stopPropagation()}
+                        >
+                          <rect
+                            x={L.bbox_x + L.bbox_w - 24} y={L.bbox_y - 18}
+                            width={18} height={14} rx={3}
+                            fill="color-mix(in oklch, oklch(0.66 0.2 25) 15%, var(--hi-surface-raised))"
+                            stroke="color-mix(in oklch, oklch(0.66 0.2 25) 40%, var(--hi-line))" strokeWidth="1"
+                          />
+                          <text
+                            x={L.bbox_x + L.bbox_w - 15} y={L.bbox_y - 8}
+                            fontSize="9" fill="oklch(0.75 0.18 25)" textAnchor="middle" fontWeight="600"
+                          >×</text>
+                        </g>
+                      </>
+                    )}
                     {editMode && (["nw","ne","sw","se"] as const).map((corner) => {
                       const cx = corner.includes("w") ? L.bbox_x : L.bbox_x + L.bbox_w;
                       const cy = corner.includes("n") ? L.bbox_y : L.bbox_y + L.bbox_h;
@@ -631,6 +719,10 @@ export function FloorplanClient({
                   onClick={() => setLayout((p) => ({ ...p, room: { ...p.room, height: p.room.height + 100 } }))}
                   style={miniBtnStyle} title="Raum höher"
                 >Höhe +100</button>
+                <span style={{ width: 1, height: 18, background: "var(--hi-line)" }} />
+                <button onClick={addZone} style={{ ...miniBtnStyle, background: "var(--hi-accent)", color: "var(--hi-on-accent)", borderColor: "var(--hi-accent)", fontWeight: 600 }}>
+                  <HiIcon kind="plus" size={11} /> Bereich anlegen
+                </button>
               </div>
               {layout.room.polygon && (
                 <div style={{ marginTop: 6, fontSize: 10.5, color: "var(--hi-muted)", lineHeight: 1.4 }}>
