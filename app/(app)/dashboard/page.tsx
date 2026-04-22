@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { getTenantContext } from "@/lib/tenant";
-import { Topbar, VoiceBanner } from "@/components/shell";
+import { VoiceBanner } from "@/components/shell";
 import { HiBtn, HiCard, HiIcon, HiPill, HiSource } from "@/components/primitives";
 import { Sparkline } from "@/components/charts";
 import { Timeline } from "@/components/timeline";
 import type { Reservation, Zone } from "@/lib/types";
 import { ConfirmVoiceForm } from "./confirm-voice";
+import { DashboardTopbarLive } from "./topbar-live";
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
@@ -92,14 +93,15 @@ export default async function DashboardPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
-      <Topbar
-        title={`${greet}, ${displayName.split(" ")[0]}`}
-        subtitle={`${weekday}, ${dateLabel} · ${allReservations.length} Reservierungen heute`}
-        right={
-          <Link href="/reservations/new">
-            <HiBtn kind="primary" size="md" icon="plus">Neue Reservierung</HiBtn>
-          </Link>
-        }
+      <DashboardTopbarLive
+        greet={greet}
+        displayName={displayName}
+        weekday={weekday}
+        dateLabel={dateLabel}
+        initialReservations={allReservations.length}
+        restaurantId={restaurantId}
+        dayStartISO={todayStart.toISOString()}
+        dayEndISO={todayEnd.toISOString()}
       />
 
       {pendingVoice[0] && <ConfirmVoiceForm reservation={pendingVoice[0]} />}

@@ -39,20 +39,62 @@ export function TablesClient({
   const [zoneFilter, setZoneFilter] = useState<string | null>(null);
   const [editing, setEditing] = useState<TableRow | null>(null);
   const [creating, setCreating] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   const filtered = useMemo(
     () => tables.filter((t) => !zoneFilter || t.zone_id === zoneFilter),
     [tables, zoneFilter],
   );
 
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+  function toggleAllFiltered() {
+    const allIds = filtered.map((t) => t.id);
+    const allSelected = allIds.every((id) => selected.has(id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allSelected) { allIds.forEach((id) => next.delete(id)); }
+      else { allIds.forEach((id) => next.add(id)); }
+      return next;
+    });
+  }
+  function clearSelection() { setSelected(new Set()); }
+
   async function deleteTable(id: string) {
     if (!confirm("Tisch wirklich löschen?")) return;
     const res = await fetch(`/api/tables/${id}`, { method: "DELETE" });
     if (res.ok) {
       setTables((prev) => prev.filter((t) => t.id !== id));
+      setSelected((prev) => { const n = new Set(prev); n.delete(id); return n; });
       router.refresh();
     }
   }
+
+  async function deleteSelected() {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    if (!confirm(`${ids.length} Tisch${ids.length === 1 ? "" : "e"} wirklich löschen? Das kann nicht rueckgaengig gemacht werden.`)) return;
+    setDeleting(true);
+    const results = await Promise.all(
+      ids.map((id) => fetch(`/api/tables/${id}`, { method: "DELETE" }).then((r) => ({ id, ok: r.ok })))
+    );
+    const okIds = new Set(results.filter((r) => r.ok).map((r) => r.id));
+    setTables((prev) => prev.filter((t) => !okIds.has(t.id)));
+    const failed = results.filter((r) => !r.ok).length;
+    setDeleting(false);
+    clearSelection();
+    if (failed > 0) alert(`${failed} Tisch(e) konnten nicht geloescht werden.`);
+    router.refresh();
+  }
+
+  const allFilteredSelected = filtered.length > 0 && filtered.every((t) => selected.has(t.id));
+  const someFilteredSelected = filtered.some((t) => selected.has(t.id)) && !allFilteredSelected;
 
   return (
     <>
@@ -76,6 +118,24 @@ export function TablesClient({
           ))}
         </div>
         <div style={{ flex: 1 }} />
+        {selected.size > 0 && (
+          <>
+            <span style={{
+              fontSize: 12, color: "var(--hi-muted-strong)",
+              padding: "6px 10px", background: "var(--hi-surface)",
+              border: "1px solid var(--hi-line)", borderRadius: 7,
+            }}>
+              <span className="mono" style={{ color: "var(--hi-accent)", fontWeight: 600 }}>
+                {selected.size}
+              </span>{" "}
+              ausgewählt
+            </span>
+            <HiBtn kind="ghost" size="md" onClick={clearSelection}>Auswahl leeren</HiBtn>
+            <HiBtn kind="danger" size="md" icon="trash" onClick={deleteSelected} disabled={deleting}>
+              {deleting ? "Lösche…" : `${selected.size} löschen`}
+            </HiBtn>
+          </>
+        )}
         <HiBtn kind="primary" size="md" icon="plus" onClick={() => setCreating(true)}>
           Tisch anlegen
         </HiBtn>
@@ -85,6 +145,16 @@ export function TablesClient({
         <table className="hi-table" style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 13 }}>
           <thead>
             <tr style={{ position: "sticky", top: 0, background: "var(--hi-bg)", zIndex: 1 }}>
+              <th style={{ padding: "12px 10px 10px 14px", borderBottom: "1px solid var(--hi-line)", width: 36 }}>
+                <input
+                  type="checkbox"
+                  aria-label="Alle ausgewaehlten Tische markieren"
+                  checked={allFilteredSelected}
+                  ref={(el) => { if (el) el.indeterminate = someFilteredSelected; }}
+                  onChange={toggleAllFiltered}
+                  style={{ accentColor: "var(--hi-accent)", cursor: "pointer" }}
+                />
+              </th>
               {["Tisch", "Bereich", "Plätze", "Form", "Attribute", "Status jetzt", "Notiz", ""].map((h, i) => (
                 <th key={i} style={{
                   textAlign: "left", padding: "12px 14px 10px",
@@ -99,8 +169,20 @@ export function TablesClient({
             {filtered.map((t) => {
               const status = statusAt(t.id, todayReservations);
               const zone = zones.find((z) => z.id === t.zone_id);
+              const isSel = selected.has(t.id);
               return (
-                <tr key={t.id}>
+                <tr key={t.id} style={{
+                  background: isSel ? "color-mix(in oklch, var(--hi-accent) 8%, transparent)" : undefined,
+                }}>
+                  <td style={{ padding: "10px 10px 10px 14px", borderBottom: "1px solid var(--hi-line)" }}>
+                    <input
+                      type="checkbox"
+                      checked={isSel}
+                      onChange={() => toggleOne(t.id)}
+                      aria-label={`Tisch ${t.label} ausgewaehlt`}
+                      style={{ accentColor: "var(--hi-accent)", cursor: "pointer" }}
+                    />
+                  </td>
                   <td style={{ padding: "10px 14px", borderBottom: "1px solid var(--hi-line)" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <HiTable shape={t.shape} seats={t.seats} label={t.label} status={status} size={36} />
@@ -147,7 +229,7 @@ export function TablesClient({
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={8} style={{ padding: 28, textAlign: "center", color: "var(--hi-muted)", fontSize: 13 }}>
+                <td colSpan={9} style={{ padding: 28, textAlign: "center", color: "var(--hi-muted)", fontSize: 13 }}>
                   Keine Tische in diesem Bereich. Legen Sie einen an.
                 </td>
               </tr>
