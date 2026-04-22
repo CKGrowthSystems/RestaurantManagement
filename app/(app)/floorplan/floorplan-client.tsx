@@ -89,7 +89,14 @@ export function FloorplanClient({
     setSelected((prev) => (prev && floorTables.some((t) => t.id === prev)) ? prev : (floorTables[0]?.id ?? null));
   }, [activeFloorId, zones, tables, floors, editMode]);
   const [drag, setDrag] = useState<DragMode | null>(null);
-  const now = new Date();
+  // Live-Uhrzeit: tickt jede Sekunde, sodass der Clock-Indikator,
+  // Countdowns und status-basierte Table-Farben (free -> countdown ->
+  // reserved) sich aktualisieren ohne manuelles Refreshen.
+  const [now, setNow] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const iv = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(iv);
+  }, []);
 
   const tableStatus = useMemo(() => {
     const map: Record<string, { status: TableStatus; countdown: string | null }> = {};

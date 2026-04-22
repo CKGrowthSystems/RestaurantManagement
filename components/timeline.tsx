@@ -1,5 +1,5 @@
 "use client";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { HiCard, HiIcon } from "./primitives";
 import type { Reservation } from "@/lib/types";
 
@@ -15,6 +15,13 @@ export function Timeline({
   const baseHour = 17;
   const spanHours = hours.length;
 
+  // Now-Marker soll jede Minute wandern, ohne dass die Seite neu geladen werden muss.
+  const [now, setNow] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const iv = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(iv);
+  }, []);
+
   const rows = tables.slice(0, 8).map((t) => {
     const segs = reservations
       .filter((r) => r.table_id === t.id && r.status !== "Storniert")
@@ -29,7 +36,6 @@ export function Timeline({
     return { id: t.id, label: t.label, segs };
   });
 
-  const now = new Date();
   const nowRel = Math.min(spanHours, Math.max(0, now.getHours() + now.getMinutes() / 60 - baseHour));
 
   const toneColor = (src: string) =>
