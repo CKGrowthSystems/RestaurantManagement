@@ -3,6 +3,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { HiBtn, HiIcon, HiPill, HiSource, HiTable, type TableStatus } from "@/components/primitives";
 import type { Floor, Reservation, RoomPoint, TableRow, Zone } from "@/lib/types";
+import { ZoneManagerModal } from "./zone-manager-modal";
 
 function statusForTable(tableId: string, rs: Reservation[], now: Date): { status: TableStatus; countdown: string | null } {
   const nowMs = now.getTime();
@@ -64,6 +65,7 @@ export function FloorplanClient({
   const [editMode, setEditMode] = useState(false);
   const [selected, setSelected] = useState<string | null>(floorTables[0]?.id ?? null);
   const [saving, setSaving] = useState(false);
+  const [showZoneManager, setShowZoneManager] = useState(false);
 
   // Per-floor layout state; rebuilt when floor changes
   const buildLayout = (): Layout => ({
@@ -380,6 +382,9 @@ export function FloorplanClient({
         <div style={{ flex: 1 }} />
         {activeFloor && (
           <div style={{ display: "flex", gap: 4, paddingBottom: 8 }}>
+            <HiBtn kind="ghost" size="sm" icon="floor" onClick={() => setShowZoneManager(true)}>
+              Bereiche verwalten
+            </HiBtn>
             <HiBtn kind="ghost" size="sm" icon="edit" onClick={renameActiveFloor}>Umbenennen</HiBtn>
             <HiBtn kind="danger" size="sm" icon="trash" onClick={deleteActiveFloor} disabled={floors.length <= 1}>
               Raum löschen
@@ -723,6 +728,9 @@ export function FloorplanClient({
                 <button onClick={addZone} style={{ ...miniBtnStyle, background: "var(--hi-accent)", color: "var(--hi-on-accent)", borderColor: "var(--hi-accent)", fontWeight: 600 }}>
                   <HiIcon kind="plus" size={11} /> Bereich anlegen
                 </button>
+                <button onClick={() => setShowZoneManager(true)} style={miniBtnStyle}>
+                  <HiIcon kind="floor" size={11} /> Bereiche verwalten ({zones.length})
+                </button>
               </div>
               {layout.room.polygon && (
                 <div style={{ marginTop: 6, fontSize: 10.5, color: "var(--hi-muted)", lineHeight: 1.4 }}>
@@ -851,6 +859,15 @@ export function FloorplanClient({
           </aside>
         )}
       </div>
+      {showZoneManager && (
+        <ZoneManagerModal
+          floors={floors}
+          zones={zones}
+          tables={tables}
+          onClose={() => setShowZoneManager(false)}
+          onChanged={() => router.refresh()}
+        />
+      )}
     </>
   );
 }

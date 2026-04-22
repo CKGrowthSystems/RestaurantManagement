@@ -1,44 +1,31 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { HiCard, HiIcon } from "@/components/primitives";
 
-const STORAGE_KEY = "rhodos.voice.unlocked";
 // Hard-coded by design: this is a soft-lock for an area already behind Supabase auth.
 // Anyone with a tenant login who also has this password can open Voice-KI.
 const PASSWORD = "LatifSerkan2026!";
 
+/**
+ * Password-Gate fuer /voice.
+ * State lebt nur im Component — **keine Persistenz**. Jeder Besuch
+ * (Navigation zurueck zu /voice oder Reload) bewirkt ein erneutes
+ * Unmount + Mount von PasswordGate und damit eine frische Abfrage.
+ */
 export function PasswordGate({ children }: { children: React.ReactNode }) {
-  const [mounted, setMounted] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [value, setValue] = useState("");
   const [error, setError] = useState(false);
 
-  useEffect(() => {
-    setMounted(true);
-    if (typeof window !== "undefined" && sessionStorage.getItem(STORAGE_KEY) === "1") {
-      setUnlocked(true);
-    }
-  }, []);
-
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (value === PASSWORD) {
-      sessionStorage.setItem(STORAGE_KEY, "1");
       setUnlocked(true);
       setError(false);
     } else {
       setError(true);
       setValue("");
     }
-  }
-
-  if (!mounted) {
-    // Avoid a flash of unstyled content while we probe sessionStorage.
-    return (
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--hi-muted)" }}>
-        Laden…
-      </div>
-    );
   }
 
   if (unlocked) return <>{children}</>;
