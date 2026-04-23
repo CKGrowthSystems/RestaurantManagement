@@ -66,6 +66,21 @@ export function FloorplanClient({
   const [saving, setSaving] = useState(false);
   const [showZoneManager, setShowZoneManager] = useState(false);
 
+  // Collapse-State fuer die rechte Tisch-Info-Sidebar; persistiert lokal,
+  // auto-collapsed bei schmalen Viewports (Tablet Quer).
+  const [rightCollapsed, setRightCollapsed] = useState(false);
+  useEffect(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("rhodos.floorplan.rightCollapsed") : null;
+    if (saved === "1") setRightCollapsed(true);
+    else if (saved === "0") setRightCollapsed(false);
+    else if (typeof window !== "undefined" && window.innerWidth < 1400) setRightCollapsed(true);
+  }, []);
+  function toggleRight() {
+    const next = !rightCollapsed;
+    setRightCollapsed(next);
+    try { localStorage.setItem("rhodos.floorplan.rightCollapsed", next ? "1" : "0"); } catch {}
+  }
+
   // Per-floor layout state; rebuilt when floor changes
   const buildLayout = (): Layout => ({
     room: {
@@ -821,12 +836,66 @@ export function FloorplanClient({
           )}
         </div>{/* /panel-container */}
 
-        {!editMode && (
+        {!editMode && rightCollapsed && (
+          <aside style={{
+            width: 36, borderLeft: "1px solid var(--hi-line)",
+            background: "var(--hi-surface)",
+            display: "flex", flexDirection: "column", alignItems: "center",
+            paddingTop: 12,
+          }}>
+            <button
+              onClick={toggleRight}
+              title="Details einblenden"
+              aria-label="Details-Panel einblenden"
+              style={{
+                width: 26, height: 26, borderRadius: 6,
+                background: "var(--hi-surface-raised)",
+                border: "1px solid var(--hi-line)",
+                color: "var(--hi-muted-strong)",
+                cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              <HiIcon kind="chevron" size={12} style={{ transform: "rotate(180deg)" }} />
+            </button>
+            {selectedTable && (
+              <div
+                title={`Tisch ${selectedTable.label} ausgewaehlt`}
+                style={{
+                  marginTop: 12,
+                  writingMode: "vertical-rl",
+                  fontSize: 11, color: "var(--hi-muted)",
+                  fontFamily: '"Geist Mono", monospace', letterSpacing: 0.5,
+                }}
+              >
+                Tisch {selectedTable.label}
+              </div>
+            )}
+          </aside>
+        )}
+        {!editMode && !rightCollapsed && (
           <aside style={{
             width: 340, borderLeft: "1px solid var(--hi-line)",
             background: "var(--hi-surface)",
             display: "flex", flexDirection: "column", overflowY: "auto",
+            position: "relative",
           }}>
+            <button
+              onClick={toggleRight}
+              title="Details ausblenden"
+              aria-label="Details-Panel ausblenden"
+              style={{
+                position: "absolute", top: 14, right: 12, zIndex: 2,
+                width: 26, height: 26, borderRadius: 6,
+                background: "var(--hi-surface-raised)",
+                border: "1px solid var(--hi-line)",
+                color: "var(--hi-muted-strong)",
+                cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              <HiIcon kind="chevron" size={12} />
+            </button>
             {selectedTable ? (
               <>
                 <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid var(--hi-line)" }}>

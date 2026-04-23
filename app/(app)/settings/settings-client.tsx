@@ -26,6 +26,7 @@ const MODES: { id: ReleaseMode; label: string; desc: string }[] = [
 ];
 
 const TABS = [
+  { id: "profile", label: "Mein Profil" },
   { id: "timer", label: "Freigabe-Timer" },
   { id: "hours", label: "Öffnungszeiten" },
   { id: "notify", label: "Benachrichtigungen" },
@@ -34,7 +35,7 @@ const TABS = [
 ] as const;
 
 export function SettingsClient({ initial }: { initial: Settings }) {
-  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("timer");
+  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("profile");
   const [mode, setMode] = useState<ReleaseMode>(initial.release_mode);
   const [hold, setHold] = useState(initial.release_minutes);
   const [hours, setHours] = useState(initial.opening_hours);
@@ -183,6 +184,10 @@ export function SettingsClient({ initial }: { initial: Settings }) {
             </>
           )}
 
+          {tab === "profile" && (
+            <ProfileTab />
+          )}
+
           {tab === "notify" && (
             <NotifyTab notify={notify} setNotify={setNotify} />
           )}
@@ -195,17 +200,19 @@ export function SettingsClient({ initial }: { initial: Settings }) {
             <UsersTab />
           )}
 
-          <div style={{ display: "flex", gap: 10, marginTop: 24, paddingTop: 20, borderTop: "1px solid var(--hi-line)" }}>
-            {saved && (
-              <span style={{ fontSize: 12, color: "oklch(0.78 0.12 145)", alignSelf: "center" }}>
-                Gespeichert ✓
-              </span>
-            )}
-            <div style={{ flex: 1 }} />
-            <HiBtn kind="primary" size="md" icon="check" onClick={save} disabled={saving}>
-              {saving ? "Speichern…" : "Änderungen speichern"}
-            </HiBtn>
-          </div>
+          {tab !== "profile" && tab !== "users" && (
+            <div style={{ display: "flex", gap: 10, marginTop: 24, paddingTop: 20, borderTop: "1px solid var(--hi-line)" }}>
+              {saved && (
+                <span style={{ fontSize: 12, color: "oklch(0.78 0.12 145)", alignSelf: "center" }}>
+                  Gespeichert ✓
+                </span>
+              )}
+              <div style={{ flex: 1 }} />
+              <HiBtn kind="primary" size="md" icon="check" onClick={save} disabled={saving}>
+                {saving ? "Speichern…" : "Änderungen speichern"}
+              </HiBtn>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -234,6 +241,130 @@ const textInputStyle: React.CSSProperties = {
   fontFamily: "inherit",
   width: "100%",
 };
+
+// ============================================================================
+// Mein Profil
+// ============================================================================
+function ProfileTab() {
+  const [loading, setLoading] = useState(true);
+  const [email, setEmail] = useState<string | null>(null);
+  const [role, setRole] = useState<string>("");
+  const [displayName, setDisplayName] = useState("");
+  const [savedName, setSavedName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/users/me", { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const u = await res.json();
+        setEmail(u.email);
+        setRole(u.role);
+        setDisplayName(u.display_name ?? "");
+        setSavedName(u.display_name ?? "");
+      } catch (err: any) {
+        setError(err?.message ?? "Profil konnte nicht geladen werden.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const dirty = displayName.trim() !== savedName && displayName.trim().length > 0;
+
+  async function save() {
+    setSaving(true); setError(null); setSaved(false);
+    try {
+      const res = await fetch("/api/users/me", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ display_name: displayName.trim() }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const u = await res.json();
+      setSavedName(u.display_name);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err: any) {
+      setError(err?.message ?? "Speichern fehlgeschlagen");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      <Header title="Mein Profil" sub="Wie dein Name im Dashboard und in Reservierungs-Notizen erscheint." />
+      {loading && <HiCard style={{ padding: 28, color: "var(--hi-muted)" }}>Lade…</HiCard>}
+      {!loading && (
+        <HiCard style={{ padding: 22 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 18 }}>
+            <Field label="E-Mail (nicht änderbar)">
+              <input
+                type="email"
+                value={email ?? ""}
+                disabled
+                style={{ ...textInputStyle, opacity: 0.7, cursor: "not-allowed" }}
+              />
+            </Field>
+            <Field label="Rolle">
+              <input
+                type="text"
+                value={role}
+                disabled
+                style={{ ...textInputStyle, opacity: 0.7, cursor: "not-allowed", textTransform: "capitalize" }}
+              />
+            </Field>
+          </div>
+          <Field label="Anzeigename">
+            <input
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              maxLength={60}
+              placeholder="Vor- und Nachname"
+              style={textInputStyle}
+            />
+          </Field>
+          {error && (
+            <div style={{
+              marginTop: 12, padding: "8px 12px", borderRadius: 7, fontSize: 12,
+              background: "color-mix(in oklch, oklch(0.66 0.2 25) 15%, transparent)",
+              color: "oklch(0.82 0.14 25)",
+              border: "1px solid color-mix(in oklch, oklch(0.66 0.2 25) 40%, var(--hi-line))",
+            }}>
+              {error}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 10, marginTop: 18, alignItems: "center" }}>
+            {saved && (
+              <span style={{ fontSize: 12, color: "oklch(0.78 0.12 145)" }}>Profil gespeichert ✓</span>
+            )}
+            <div style={{ flex: 1 }} />
+            <HiBtn kind="primary" size="md" icon="check" onClick={save} disabled={!dirty || saving}>
+              {saving ? "Speichern…" : "Profil speichern"}
+            </HiBtn>
+          </div>
+        </HiCard>
+      )}
+    </>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span style={{ fontSize: 11, fontWeight: 500, color: "var(--hi-muted)", letterSpacing: 0.3 }}>{label}</span>
+      {children}
+    </label>
+  );
+}
 
 // ============================================================================
 // Benachrichtigungen
