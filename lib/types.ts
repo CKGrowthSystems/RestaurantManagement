@@ -21,8 +21,20 @@ export type ReservationSource =
   | "Walk-in"
   | "Walk-In"
   | "Web";
+/**
+ * Reservations-Status-Flow:
+ *   - Angefragt   → wartet auf Freigabe durch Wirt (nur wenn Tisch requires_approval=true ist)
+ *   - Bestätigt   → aktiv, Tisch ist gebucht
+ *   - Eingetroffen → Gast sitzt
+ *   - Abgeschlossen → Gast ist weg, Tisch frei
+ *   - Storniert   → abgesagt (vom Gast oder Wirt)
+ *   - No-Show     → nicht erschienen
+ *
+ * "Offen" ist Legacy (wurde bei MVP 2026-04-22 durch Angefragt ersetzt).
+ */
 export type ReservationStatus =
   | "Offen"
+  | "Angefragt"
   | "Bestätigt"
   | "Eingetroffen"
   | "Abgeschlossen"
@@ -85,6 +97,18 @@ export interface TableRow {
   pos_y: number;
   rotation: number;
   release_minutes: number | null;
+  /**
+   * Wenn true, gehen AutoAssign-Platzierungen auf diesen Tisch als
+   * „Angefragt" statt „Bestaetigt" rein. Der Wirt muss per Klick approven.
+   * Typischer Use-Case: Stammtische.
+   */
+  requires_approval: boolean;
+  /**
+   * Optionaler Hinweis-Text, z.B. „Stammtisch Mueller Do 19-22".
+   * Wird auf der Kanban-Karte angezeigt wenn die Reservierung
+   * genau diesen Tisch getroffen hat.
+   */
+  approval_note: string | null;
 }
 
 export interface Reservation {

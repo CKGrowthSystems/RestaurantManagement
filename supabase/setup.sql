@@ -96,6 +96,8 @@ create table if not exists tables (
   pos_y           int not null default 0,
   rotation        int not null default 0 check (rotation between -360 and 360),
   release_minutes int,
+  requires_approval boolean not null default false,
+  approval_note     text,
   created_at      timestamptz not null default now(),
   unique (restaurant_id, label)
 );
@@ -110,7 +112,7 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 do $$ begin
-  create type reservation_status as enum ('Offen', 'Bestätigt', 'Eingetroffen', 'Abgeschlossen', 'No-Show', 'Storniert');
+  create type reservation_status as enum ('Offen', 'Angefragt', 'Bestätigt', 'Eingetroffen', 'Abgeschlossen', 'No-Show', 'Storniert');
 exception when duplicate_object then null; end $$;
 
 create table if not exists reservations (

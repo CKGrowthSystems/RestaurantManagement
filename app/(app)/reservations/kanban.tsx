@@ -9,7 +9,9 @@ import { ReservationEditModal } from "./edit-modal";
 import { WalkInModal } from "./walkin-modal";
 import { useRealtimeList } from "@/lib/supabase/realtime";
 
-const COLS: { key: ReservationStatus; tone: "warn" | "accent" | "success" | "neutral"; subtitle: string }[] = [
+type ColDef = { key: ReservationStatus; tone: "warn" | "accent" | "success" | "neutral" | "danger"; subtitle: string; conditional?: boolean };
+const COLS: ColDef[] = [
+  { key: "Angefragt",     tone: "warn",    subtitle: "Freigabe erforderlich", conditional: true },
   { key: "Bestätigt",     tone: "accent",  subtitle: "Erwartet" },
   { key: "Eingetroffen",  tone: "success", subtitle: "Am Tisch" },
   { key: "Abgeschlossen", tone: "neutral", subtitle: "Fertig" },
@@ -109,8 +111,8 @@ export function ReservationsKanban({
   // (stornierte oder No-Show sollen nicht in die Anzeige zaehlen).
   const activeItems = items.filter((r) => r.status !== "Storniert" && r.status !== "No-Show");
   const totalCount = activeItems.length;
-  const pendingFlagged = activeItems.filter((r) => r.auto_assigned && r.approval_reason && r.status === "Bestätigt").length;
-  const subtitle = `${isToday ? "Heute" : dayLabel} · ${totalCount} Reservierung${totalCount === 1 ? "" : "en"}${pendingFlagged ? ` · ${pendingFlagged} mit Hinweis` : ""}`;
+  const pendingApproval = activeItems.filter((r) => r.status === "Angefragt").length;
+  const subtitle = `${isToday ? "Heute" : dayLabel} · ${totalCount} Reservierung${totalCount === 1 ? "" : "en"}${pendingApproval ? ` · ${pendingApproval} warten auf Freigabe` : ""}`;
 
   return (
     <>
@@ -218,11 +220,18 @@ export function ReservationsKanban({
         <span style={{ fontSize: 11.5, color: "var(--hi-muted)" }}>Drag &amp; Drop · Stift = bearbeiten</span>
       </div>
 
+      {(() => {
+        // Conditional Angefragt-Spalte: nur zeigen wenn es mind. eine Anfrage gibt.
+        const visibleCols = COLS.filter((c) => {
+          if (!c.conditional) return true;
+          return items.some((r) => r.status === c.key);
+        });
+        return (
       <div style={{
         flex: 1, overflow: "auto", padding: "16px 20px",
-        display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14,
+        display: "grid", gridTemplateColumns: `repeat(${visibleCols.length}, 1fr)`, gap: 14,
       }}>
-        {COLS.map((col) => {
+        {visibleCols.map((col) => {
           const colItems = items.filter((r) => r.status === col.key);
           return (
             <div
@@ -261,9 +270,14 @@ export function ReservationsKanban({
                       padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6,
                       borderColor: pulseId === r.id
                         ? "var(--hi-accent)"
+                        : r.status === "Angefragt"
+                        ? "oklch(0.72 0.15 70)"
                         : r.auto_assigned && r.approval_reason
                         ? "color-mix(in oklch, oklch(0.75 0.14 70) 50%, var(--hi-line))"
                         : "var(--hi-line)",
+                      background: r.status === "Angefragt"
+                        ? "color-mix(in oklch, oklch(0.75 0.15 70) 8%, var(--hi-surface))"
+                        : undefined,
                       boxShadow: pulseId === r.id
                         ? "0 0 0 4px color-mix(in oklch, var(--hi-accent) 20%, transparent)"
                         : undefined,
@@ -315,8 +329,24 @@ export function ReservationsKanban({
                     {r.note && (
                       <div style={{ fontSize: 11, color: "var(--hi-muted)", lineHeight: 1.4 }}>{r.note}</div>
                     )}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 2 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 2, gap: 6 }}>
                       <HiSource src={r.source} />
+                      {r.status === "Angefragt" && (
+                        <div style={{ display: "flex", gap: 5 }}>
+                          <HiBtn
+                            kind="danger" size="sm" icon="x"
+                            onClick={() => {
+                              if (!confirm(`Reservierung von ${r.guest_name} ablehnen?`)) return;
+                              move(r.id, "Storniert");
+                            }}
+                          >
+                            Ablehnen
+                          </HiBtn>
+                          <HiBtn kind="primary" size="sm" icon="check" onClick={() => move(r.id, "Bestätigt")}>
+                            Freigeben
+                          </HiBtn>
+                        </div>
+                      )}
                       {r.status === "Bestätigt" && (
                         <HiBtn kind="outline" size="sm" icon="check" onClick={() => move(r.id, "Eingetroffen")}>
                           Eingetroffen
@@ -351,6 +381,8 @@ export function ReservationsKanban({
           );
         })}
       </div>
+        );
+      })()}
       {editing && (
         <ReservationEditModal
           reservation={editing}

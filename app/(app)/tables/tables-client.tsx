@@ -298,6 +298,8 @@ function TableDialog({
   const [zoneId, setZoneId] = useState<string>(table?.zone_id ?? zones[0]?.id ?? "");
   const [accessible, setAccessible] = useState(table?.accessible ?? false);
   const [notes, setNotes] = useState(table?.notes ?? "");
+  const [requiresApproval, setRequiresApproval] = useState(table?.requires_approval ?? false);
+  const [approvalNote, setApprovalNote] = useState(table?.approval_note ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -306,6 +308,8 @@ function TableDialog({
     setLoading(true); setError(null);
     const body = JSON.stringify({
       label, seats: Number(seats), shape, zone_id: zoneId, accessible, notes: notes || null,
+      requires_approval: requiresApproval,
+      approval_note: requiresApproval ? (approvalNote.trim() || null) : null,
     });
     const res = table
       ? await fetch(`/api/tables/${table.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body })
@@ -385,6 +389,38 @@ function TableDialog({
                  style={{ accentColor: "var(--hi-accent)" }} />
           ♿ Rollstuhlgerecht
         </label>
+
+        <div style={{
+          padding: 12, borderRadius: 10,
+          background: requiresApproval
+            ? "color-mix(in oklch, oklch(0.75 0.15 70) 10%, var(--hi-surface-raised))"
+            : "var(--hi-surface-raised)",
+          border: requiresApproval
+            ? "1px solid oklch(0.72 0.15 70)"
+            : "1px solid var(--hi-line)",
+          display: "flex", flexDirection: "column", gap: 8,
+        }}>
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 13, color: "var(--hi-ink)", cursor: "pointer" }}>
+            <input type="checkbox" checked={requiresApproval} onChange={(e) => setRequiresApproval(e.target.checked)}
+                   style={{ accentColor: "oklch(0.72 0.15 70)", marginTop: 2 }} />
+            <span>
+              <span style={{ fontWeight: 600 }}>🔒 Freigabe erforderlich (Stammtisch / VIP)</span>
+              <span style={{ display: "block", fontSize: 11.5, color: "var(--hi-muted)", marginTop: 3, lineHeight: 1.4 }}>
+                Voice-KI und AutoAssign werden Buchungen auf diesen Tisch als „Angefragt"
+                markieren. Das Team bestätigt manuell.
+              </span>
+            </span>
+          </label>
+          {requiresApproval && (
+            <HiField
+              label="Hinweis-Text (optional)"
+              value={approvalNote}
+              onChange={setApprovalNote}
+              placeholder="z. B. Stammtisch Müller, Do 19–22"
+            />
+          )}
+        </div>
+
         <HiField label="Notiz" value={notes} onChange={setNotes} placeholder="z. B. Fensterplatz" />
         {error && (
           <div style={{ fontSize: 12, color: "oklch(0.75 0.14 25)" }}>{error}</div>

@@ -8,9 +8,11 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
 
   const body = await request.json();
   const patch: Record<string, unknown> = {};
-  for (const key of ["label", "seats", "shape", "zone_id", "accessible", "notes", "pos_x", "pos_y"] as const) {
+  for (const key of ["label", "seats", "shape", "zone_id", "accessible", "notes", "pos_x", "pos_y", "requires_approval", "approval_note", "rotation"] as const) {
     if (key in body) patch[key] = body[key];
   }
+  // Wenn requires_approval auf false gesetzt wird, approval_note mit ausnullen
+  if (patch.requires_approval === false) patch.approval_note = null;
   const { data, error } = await tenant.supabase
     .from("tables").update(patch)
     .eq("id", id).eq("restaurant_id", tenant.restaurantId)

@@ -137,8 +137,9 @@ export async function POST(request: Request) {
     instruction = `ABSAGEN: Es sind keine Tische im System. Keine Reservierung anlegen. Gast zurück an Restaurant verweisen: 07803 926970.`;
   } else if (!assignedTable) {
     instruction = `ABSAGEN: Für ${party} Personen am ${dateStr} um ${timeStr} ist kein Tisch verfügbar. Dem Gast sagen, dass die Reservierung nicht möglich ist.`;
+  } else if (decision.status === "Angefragt") {
+    instruction = `NOTIEREN: Reservierung vorgemerkt für ${body.guest_name}, ${party} Personen, ${dateStr} ${timeStr}, Bereich ${zoneName}. Sage dem Gast wörtlich: "Alles klar, ich habe Sie notiert — ein Kollege bestätigt Ihnen das zeitnah, Sie bekommen eine kurze Rückmeldung." KEINE feste Zusage geben.`;
   } else {
-    // Neue Geschaeftsregel: jede erfolgreiche Buchung ist direkt „Bestaetigt".
     instruction = `FERTIG: Reservierung fest für ${body.guest_name}, ${party} Personen, ${dateStr} ${timeStr}, Bereich ${zoneName}. Gast bestätigen: "Perfekt, ich habe Sie fest eingetragen, wir freuen uns auf Sie."`;
   }
 
@@ -149,7 +150,7 @@ export async function POST(request: Request) {
     assigned_table: assignedTable
       ? { id: assignedTable.id, label: assignedTable.label, zone: zoneName, seats: assignedTable.seats }
       : null,
-    requires_approval: false,
+    requires_approval: decision.status === "Angefragt",
     approval_reason: decision.approvalReason,
     instruction,
     message: decision.reasonForAI,

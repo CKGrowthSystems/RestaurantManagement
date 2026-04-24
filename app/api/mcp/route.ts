@@ -330,11 +330,21 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
     let instruction: string;
     if (!assignedTable) {
       instruction = `ABSAGEN: Kein Tisch verfügbar. Reservierung nicht angelegt.`;
+    } else if (decision.status === "Angefragt") {
+      // Stammtisch / VIP-Tisch: Team muss freigeben. Voice-KI sagt NOTIEREN.
+      instruction = `NOTIEREN: Reservierung vorgemerkt für ${args.guest_name}, ${party} Personen, ${parsed.berlinLocal}, Bereich ${zoneName ?? "Innenraum"}. Sage dem Gast wörtlich: "Alles klar, ich habe Sie notiert — ein Kollege bestätigt Ihnen das zeitnah, Sie bekommen eine kurze Rückmeldung." KEINE feste Zusage geben.`;
     } else {
-      // Neue Geschaeftsregel: jede erfolgreiche Buchung ist direkt „Bestaetigt".
+      // Normaler Fall: jede erfolgreiche Buchung ist direkt Bestaetigt.
       instruction = `FERTIG: Reservierung fest für ${args.guest_name}, ${party} Personen, ${parsed.berlinLocal}, Bereich ${zoneName ?? "Innenraum"}. Bestätige: "Perfekt, ich habe Sie fest eingetragen, wir freuen uns auf Sie."`;
     }
-    return textContent({ reservation_id: reservation.id, status: decision.status, parsed_date: parsed.berlinLocal, instruction });
+    return textContent({
+      reservation_id: reservation.id,
+      status: decision.status,
+      requires_approval: decision.status === "Angefragt",
+      approval_reason: decision.approvalReason,
+      parsed_date: parsed.berlinLocal,
+      instruction,
+    });
   }
 
   // ==================================================================

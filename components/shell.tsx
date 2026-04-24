@@ -33,11 +33,11 @@ export function Sidebar({
   const router = useRouter();
   const initials = displayName.slice(0, 2).toUpperCase();
 
-  // Live-Zahlen: Badges sollen sofort reagieren, wenn Voice-KI eine neue
-  // Reservierung anlegt, der Nutzer im Kanban etwas storniert, usw.
-  const openReservations = useRealtimeCount("reservations", restaurantId, badges?.reservations?.n ?? 0, {
-    filter: (q) => q.eq("status", "Offen"),
-    additionalFilterString: "status=Offen",
+  // Live-Zahlen: Reservierungen-Badge zaehlt Anfragen, die auf Freigabe warten
+  // (Stammtisch/VIP) — das sind die Dinge, die dringend Aufmerksamkeit brauchen.
+  const pendingApprovals = useRealtimeCount("reservations", restaurantId, badges?.reservations?.n ?? 0, {
+    filter: (q) => q.eq("status", "Angefragt"),
+    additionalFilterString: "status=Angefragt",
   });
   const voiceCallsToday = useRealtimeCount("voice_calls", restaurantId, badges?.voice?.n ?? 0, {
     filter: (q) => q.gte("started_at", new Date(Date.now() - 24 * 3600_000).toISOString()),
@@ -46,7 +46,8 @@ export function Sidebar({
 
   const liveBadges: typeof badges = {
     ...badges,
-    reservations: { n: openReservations, tone: badges?.reservations?.tone },
+    // Warn-Tone (orange) fuer Angefragt — signalisiert dringendes Handeln
+    reservations: { n: pendingApprovals, tone: pendingApprovals > 0 ? "accent" : badges?.reservations?.tone },
     voice: { n: voiceCallsToday, tone: badges?.voice?.tone ?? "accent" },
   };
 

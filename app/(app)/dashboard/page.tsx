@@ -9,6 +9,7 @@ import type { Reservation, Zone } from "@/lib/types";
 import { ConfirmVoiceForm } from "./confirm-voice";
 import { DashboardTopbarLive } from "./topbar-live";
 import { UpcomingArrivalsLive } from "./upcoming-live";
+import { ApprovalBanner } from "./approval-banner";
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
@@ -61,6 +62,7 @@ export default async function DashboardPage() {
     (r) => r.status !== "Storniert" && r.status !== "No-Show"
   );
   const pendingVoice = allReservations.filter((r) => r.status === "Offen" && r.source === "Voice-KI");
+  const pendingApprovalCount = allReservations.filter((r) => r.status === "Angefragt").length;
 
   const guestsToday = allReservations
     .filter((r) => r.status !== "Storniert" && r.status !== "No-Show")
@@ -108,6 +110,8 @@ export default async function DashboardPage() {
         dayStartISO={todayStart.toISOString()}
         dayEndISO={todayEnd.toISOString()}
       />
+
+      <ApprovalBanner restaurantId={restaurantId} initialCount={pendingApprovalCount} />
 
       {pendingVoice[0] && <ConfirmVoiceForm reservation={pendingVoice[0]} />}
 

@@ -82,18 +82,25 @@ export function bestCandidate(opts: Parameters<typeof rankCandidates>[0]) {
 }
 
 /**
- * Decide auto-assignment result:
- * - any candidate found  → assign + **Bestaetigt** (immer)
- * - no candidate         → tableId null + Bestaetigt (ohne Tisch)
+ * Decide auto-assignment result.
  *
- * Geschaeftsregel: Neue Reservierungen gehen automatisch auf „Bestätigt".
- * Die frueher vorhandene „Offen"-Spalte ist abgeschafft.
- * approvalReason wird trotzdem gesetzt, falls ein groesserer Tisch
- * zugewiesen wurde — dient als Hinweis im Kartentext, nicht als Gate.
+ * Standard-Geschaeftsregel:
+ *   - Kandidat gefunden    → Bestaetigt
+ *   - Kein Kandidat        → Bestaetigt ohne Tisch (Team haendisch)
+ *
+ * Ausnahme (Stammtische / VIP-Tische):
+ *   - Wenn best.table.requires_approval === true, geht die Reservierung auf
+ *     status="Angefragt" statt "Bestaetigt". Der Wirt approved via Kanban.
+ *   - approvalReason wird dann auf approval_note oder eine Default-Meldung
+ *     gesetzt. Tisch bleibt reserviert (belegt den Slot), bis approve/reject.
+ *
+ * Das war fruehere Voice-KI-Reservierung sagte immer „FERTIG" — jetzt kann
+ * sie bei Stammtischen „NOTIEREN" sagen und die eigentliche Bestaetigung
+ * erfolgt asynchron durch das Team.
  */
 export function autoAssign(opts: Parameters<typeof rankCandidates>[0]): {
   tableId: string | null;
-  status: "Bestätigt";
+  status: "Bestätigt" | "Angefragt";
   autoAssigned: boolean;
   approvalReason: string | null;
   reasonForAI: string;
@@ -108,6 +115,22 @@ export function autoAssign(opts: Parameters<typeof rankCandidates>[0]): {
     };
   }
 
+  // ======== Stammtisch / VIP-Tisch → Angefragt statt Bestaetigt ========
+  if (best.table.requires_approval) {
+    const note = best.table.approval_note?.trim();
+    const approvalReason = note && note.length > 0
+      ? `Freigabe erforderlich: ${note}`
+      : `Freigabe erforderlich — Tisch ${best.table.label} braucht manuelle Bestätigung.`;
+    return {
+      tableId: best.table.id,
+      status: "Angefragt",
+      autoAssigned: true,
+      approvalReason,
+      reasonForAI: `Tisch ${best.table.label} vorgemerkt, Team bestätigt.`,
+    };
+  }
+
+  // ======== Normalfall ========
   if (best.exactMatch) {
     return {
       tableId: best.table.id, status: "Bestätigt", autoAssigned: true, approvalReason: null,

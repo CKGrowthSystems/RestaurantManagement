@@ -13,7 +13,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       .from("reservations")
       .select("*", { count: "exact", head: true })
       .eq("restaurant_id", restaurantId)
-      .eq("status", "Offen"),
+      .eq("status", "Angefragt"),
     supabase
       .from("voice_calls")
       .select("*", { count: "exact", head: true })
