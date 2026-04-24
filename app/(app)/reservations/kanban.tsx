@@ -1,11 +1,12 @@
 "use client";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { HiBtn, HiCard, HiIcon, HiPill, HiSource } from "@/components/primitives";
 import { Topbar } from "@/components/shell";
 import type { Reservation, ReservationStatus, TableRow } from "@/lib/types";
 import { ReservationEditModal } from "./edit-modal";
+import { WalkInModal } from "./walkin-modal";
 import { useRealtimeList } from "@/lib/supabase/realtime";
 
 const COLS: { key: ReservationStatus; tone: "warn" | "accent" | "success" | "neutral"; subtitle: string }[] = [
@@ -22,11 +23,12 @@ function shiftDate(date: string, days: number): string {
 }
 
 export function ReservationsKanban({
-  initial, tables, selectedDate, today, totalOpenGlobal,
+  initial, tables, zones = [], selectedDate, today, totalOpenGlobal,
   restaurantId, dayStartISO, dayEndISO,
 }: {
   initial: Reservation[];
   tables: Pick<TableRow, "id" | "label">[];
+  zones?: { id: string; name: string }[];
   selectedDate: string;
   today: string;
   totalOpenGlobal: number;
@@ -35,9 +37,11 @@ export function ReservationsKanban({
   dayEndISO: string;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [dragId, setDragId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Reservation | null>(null);
   const [pulseId, setPulseId] = useState<string | null>(null);
+  const [showWalkIn, setShowWalkIn] = useState(false);
 
   // Real-time: neue Voice-KI-Buchungen / Updates / Stornos kommen live rein,
   // ohne manuelles Refreshen. Events ausserhalb des aktuell ausgewaehlten
@@ -87,6 +91,20 @@ export function ReservationsKanban({
     router.refresh();
   }
 
+  // ?edit=<id> in URL => Modal sofort oeffnen (z.B. vom Dashboard aus)
+  useEffect(() => {
+    const editId = searchParams?.get("edit");
+    if (!editId) return;
+    const target = items.find((r) => r.id === editId);
+    if (target) {
+      setEditing(target);
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("edit");
+      const qs = params.toString();
+      router.replace(`/reservations${qs ? `?${qs}` : ""}`);
+    }
+  }, [searchParams, items, router]);
+
   // Live berechnete Counts aus aktuellem Kanban-State. Nur aktive zaehlen
   // (stornierte oder No-Show sollen nicht in die Anzeige zaehlen).
   const activeItems = items.filter((r) => r.status !== "Storniert" && r.status !== "No-Show");
@@ -100,9 +118,14 @@ export function ReservationsKanban({
         title="Reservierungen"
         subtitle={subtitle}
         right={
-          <Link href="/reservations/new">
-            <HiBtn kind="primary" size="md" icon="plus">Neue Reservierung</HiBtn>
-          </Link>
+          <div style={{ display: "flex", gap: 8 }}>
+            <HiBtn kind="outline" size="md" icon="plus" onClick={() => setShowWalkIn(true)}>
+              Walk-In
+            </HiBtn>
+            <Link href="/reservations/new">
+              <HiBtn kind="primary" size="md" icon="plus">Neue Reservierung</HiBtn>
+            </Link>
+          </div>
         }
       />
       <div style={{
@@ -341,6 +364,13 @@ export function ReservationsKanban({
             setItems((prev) => prev.map((r) => (r.id === id ? { ...r, status: "Storniert" } : r)));
             router.refresh();
           }}
+        />
+      )}
+      {showWalkIn && (
+        <WalkInModal
+          zones={zones}
+          onClose={() => setShowWalkIn(false)}
+          onPlaced={() => router.refresh()}
         />
       )}
     </>

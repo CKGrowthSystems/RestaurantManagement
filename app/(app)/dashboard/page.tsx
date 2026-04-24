@@ -8,6 +8,7 @@ import { Timeline } from "@/components/timeline";
 import type { Reservation, Zone } from "@/lib/types";
 import { ConfirmVoiceForm } from "./confirm-voice";
 import { DashboardTopbarLive } from "./topbar-live";
+import { UpcomingArrivalsLive } from "./upcoming-live";
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
@@ -125,56 +126,13 @@ export default async function DashboardPage() {
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 18 }}>
           <Timeline reservations={allReservations} tables={tableList as any} />
-          <HiCard style={{ padding: 0, display: "flex", flexDirection: "column" }}>
-            <div style={{
-              padding: "14px 18px", borderBottom: "1px solid var(--hi-line)",
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-            }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--hi-ink)" }}>Nächste Ankünfte</div>
-                <div style={{ fontSize: 11.5, color: "var(--hi-muted)" }}>Nächste 90 Min.</div>
-              </div>
-              <Link href="/reservations"><HiBtn kind="ghost" size="sm">Alle</HiBtn></Link>
-            </div>
-            <div style={{ padding: "8px 10px", display: "flex", flexDirection: "column" }}>
-              {upcoming.length === 0 && (
-                <div style={{ padding: 20, color: "var(--hi-muted)", fontSize: 13 }}>
-                  Keine anstehenden Reservierungen. Leg eine neue an.
-                </div>
-              )}
-              {upcoming.map((r, i) => {
-                const table = tableList.find((t) => t.id === r.table_id);
-                return (
-                  <div key={r.id} style={{
-                    padding: "10px 10px",
-                    display: "grid", gridTemplateColumns: "58px 1fr auto",
-                    gap: 10, alignItems: "center",
-                    borderBottom: i < upcoming.length - 1 ? "1px solid var(--hi-line)" : "none",
-                  }}>
-                    <div>
-                      <div className="mono" style={{ fontSize: 14, fontWeight: 600, color: "var(--hi-ink)", letterSpacing: -0.3 }}>
-                        {fmtTime(r.starts_at)}
-                      </div>
-                      <div style={{ fontSize: 10, color: "var(--hi-muted)" }}>in {minsUntil(r.starts_at)}m</div>
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 500, color: "var(--hi-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {r.guest_name}
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--hi-muted)", display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-                        <span>{r.party_size}P</span>·<span>{(table as any)?.label ?? "—"}</span>·<HiSource src={r.source} />
-                      </div>
-                    </div>
-                    {r.status === "Offen" ? (
-                      <HiPill tone="accent" dot>Bestätigen</HiPill>
-                    ) : (
-                      <HiIcon kind="check" size={15} style={{ color: "oklch(0.75 0.13 145)" }} />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </HiCard>
+          <UpcomingArrivalsLive
+            initial={allReservations}
+            restaurantId={restaurantId}
+            tables={tableList.map((t: any) => ({ id: t.id, label: t.label }))}
+            dayStartISO={todayStart.toISOString()}
+            dayEndISO={todayEnd.toISOString()}
+          />
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>

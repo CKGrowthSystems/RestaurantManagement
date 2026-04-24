@@ -67,13 +67,14 @@ export default async function ReservationsPage({
     sp.date && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) ? sp.date : today;
   const { startISO, endISO } = berlinDayWindow(selectedDate);
 
-  const [{ data: reservations }, { data: tables }, { count: openGlobal }] = await Promise.all([
+  const [{ data: reservations }, { data: tables }, { data: zones }, { count: openGlobal }] = await Promise.all([
     supabase.from("reservations").select("*")
       .eq("restaurant_id", restaurantId)
       .gte("starts_at", startISO)
       .lt("starts_at", endISO)
       .order("starts_at"),
     supabase.from("tables").select("id, label").eq("restaurant_id", restaurantId),
+    supabase.from("zones").select("id, name").eq("restaurant_id", restaurantId).order("sort_order"),
     supabase.from("reservations")
       .select("*", { count: "exact", head: true })
       .eq("restaurant_id", restaurantId)
@@ -85,6 +86,7 @@ export default async function ReservationsPage({
       <ReservationsKanban
         initial={(reservations ?? []) as Reservation[]}
         tables={(tables ?? []) as Pick<TableRow, "id" | "label">[]}
+        zones={(zones ?? []) as { id: string; name: string }[]}
         selectedDate={selectedDate}
         today={today}
         totalOpenGlobal={openGlobal ?? 0}
