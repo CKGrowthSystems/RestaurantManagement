@@ -197,19 +197,34 @@ export function HiField({
   );
 }
 
+/**
+ * HiSource zeigt die Herkunft einer Reservierung als Pill.
+ *
+ * Anzeige-Mapping (DB-Werte -> sichtbares Label):
+ *   Voice-KI        -> „Voice-KI" (Telefon-Anruf ueber Voice-AI)
+ *   Telefon/Chat    -> „Webseite" (Web-Chat-Agent auf der Homepage)
+ *   Web / Walk-in / Manuell -> „Manuell" (vom Team haendisch eingetragen)
+ *
+ * Wir mappen auf DISPLAY-Ebene, damit alte Daten (DB-Werte „Telefon",
+ * „Web", „Walk-in") weiter funktionieren — nur die UI wird vereinheitlicht.
+ */
 export function HiSource({ src }: { src: string }) {
-  const m: Record<string, { icon: IconKind; tone: PillTone }> = {
-    "Voice-KI": { icon: "voice", tone: "accent" },
-    Voice: { icon: "voice", tone: "accent" },
-    Telefon: { icon: "phone", tone: "info" },
-    "Walk-in": { icon: "walkin", tone: "neutral" },
-    Web: { icon: "globe", tone: "neutral" },
+  const m: Record<string, { icon: IconKind; tone: PillTone; label: string }> = {
+    "Voice-KI":  { icon: "voice",  tone: "accent",  label: "Voice-KI" },
+    "Voice":     { icon: "voice",  tone: "accent",  label: "Voice-KI" },
+    "Telefon":   { icon: "globe",  tone: "info",    label: "Webseite" },
+    "Webseite":  { icon: "globe",  tone: "info",    label: "Webseite" },
+    "Chatagent": { icon: "globe",  tone: "info",    label: "Webseite" },
+    "Web":       { icon: "edit",   tone: "neutral", label: "Manuell" },
+    "Walk-in":   { icon: "edit",   tone: "neutral", label: "Manuell" },
+    "Walk-In":   { icon: "edit",   tone: "neutral", label: "Manuell" },
+    "Manuell":   { icon: "edit",   tone: "neutral", label: "Manuell" },
   };
-  const x = m[src] ?? m.Telefon;
+  const x = m[src] ?? { icon: "edit" as IconKind, tone: "neutral" as PillTone, label: src };
   return (
     <HiPill tone={x.tone}>
       <HiIcon kind={x.icon} size={10.5} />
-      {src}
+      {x.label}
     </HiPill>
   );
 }

@@ -1,5 +1,26 @@
 export type TableShape = "round" | "square";
-export type ReservationSource = "Voice-KI" | "Telefon" | "Walk-in" | "Web";
+/**
+ * Reservation-Quelle.
+ *
+ * Aktuell erlaubte neue Werte:
+ *   - "Voice-KI"  → automatische Buchung via Voice-AI-Telefonbot
+ *   - "Webseite"  → web-/chatbasiert (Webseite, Chat-Agent)
+ *   - "Manuell"   → vom Team eingetragen (inkl. Walk-In)
+ *
+ * Historische Werte werden weiter unterstuetzt (HiSource mappt sie
+ * auf die neuen Labels), sollten aber nicht mehr fuer neue Records
+ * benutzt werden.
+ */
+export type ReservationSource =
+  | "Voice-KI"
+  | "Webseite"
+  | "Manuell"
+  // Legacy, read-only:
+  | "Telefon"
+  | "Chatagent"
+  | "Walk-in"
+  | "Walk-In"
+  | "Web";
 export type ReservationStatus =
   | "Offen"
   | "Bestätigt"

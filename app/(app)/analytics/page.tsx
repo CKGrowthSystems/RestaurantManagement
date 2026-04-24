@@ -43,16 +43,26 @@ export default async function AnalyticsPage() {
   });
   const maxDay = Math.max(1, ...days);
 
-  const sourceCounts: Record<string, number> = { "Voice-KI": 0, Telefon: 0, Web: 0, "Walk-in": 0 };
-  rs.forEach((r) => { sourceCounts[r.source] = (sourceCounts[r.source] ?? 0) + 1; });
+  // Alte Werte (Telefon, Web, Walk-in) auf die neuen Labels normalisieren,
+  // damit historische Daten in die neuen Kategorien fallen.
+  const srcLabel = (s: string): string => {
+    if (s === "Voice-KI" || s === "Voice") return "Voice-KI";
+    if (s === "Telefon" || s === "Chatagent" || s === "Webseite") return "Webseite";
+    return "Manuell"; // Web, Walk-in, Walk-In, Manuell, Sonstiges
+  };
+  const sourceCounts: Record<string, number> = { "Voice-KI": 0, "Webseite": 0, "Manuell": 0 };
+  rs.forEach((r) => {
+    const key = srcLabel(r.source);
+    sourceCounts[key] = (sourceCounts[key] ?? 0) + 1;
+  });
   const sourceTotal = Math.max(1, rs.length);
   const sources = Object.entries(sourceCounts).map(([name, n]) => ({
     name,
     value: Math.round((n / sourceTotal) * 100),
     color:
       name === "Voice-KI" ? "var(--hi-accent)" :
-      name === "Telefon" ? "oklch(0.72 0.12 235)" :
-      name === "Web" ? "oklch(0.7 0.12 145)" : "rgba(255,255,255,0.3)",
+      name === "Webseite" ? "oklch(0.72 0.12 235)" :
+      "oklch(0.7 0.12 145)", // Manuell
   }));
 
   const avgOcc = capacity > 0 ? Math.round(((totalGuests / 7) / capacity) * 100) : 0;

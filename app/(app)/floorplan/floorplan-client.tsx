@@ -963,11 +963,34 @@ export function FloorplanClient({
                       Reservierung zuweisen
                     </HiBtn>
                   </a>
-                  <a href={`/reservations/new?table=${selectedTable.id}&walkin=1`}>
-                    <HiBtn kind="outline" size="md" icon="walkin" style={{ width: "100%" }}>
-                      Walk-in hierher setzen
-                    </HiBtn>
-                  </a>
+                  <HiBtn
+                    kind="outline"
+                    size="md"
+                    icon="walkin"
+                    style={{ width: "100%" }}
+                    onClick={async () => {
+                      const input = prompt(`Walk-in für Tisch ${selectedTable.label} — wie viele Personen?`, "2");
+                      if (!input) return;
+                      const party = parseInt(input, 10);
+                      if (!Number.isFinite(party) || party < 1 || party > 40) {
+                        alert("Bitte eine Zahl zwischen 1 und 40 eingeben.");
+                        return;
+                      }
+                      const res = await fetch("/api/walkin", {
+                        method: "POST",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ party_size: party, table_id: selectedTable.id }),
+                      });
+                      if (!res.ok) {
+                        const body = await res.json().catch(() => ({}));
+                        alert(body.error ?? "Walk-in konnte nicht platziert werden.");
+                        return;
+                      }
+                      router.refresh();
+                    }}
+                  >
+                    Walk-in hierher setzen
+                  </HiBtn>
                 </div>
               </>
             ) : (

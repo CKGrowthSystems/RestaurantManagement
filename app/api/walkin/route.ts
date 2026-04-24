@@ -11,8 +11,9 @@ export const dynamic = "force-dynamic";
  *
  * Erzeugt eine Walk-In-Gastzuweisung: NICHT eine Reservierung im klassischen
  * Sinn, sondern eine sofortige Platzierung am Tisch. Implementiert ueber
- * reservations mit source="Walk-In", status="Eingetroffen", guest_name="Walk-In",
- * phone=null. starts_at = jetzt. Ohne Name / Telefon.
+ * reservations mit source="Manuell" (vom Team haendisch platziert),
+ * status="Eingetroffen", guest_name="Walk-In", phone=null. starts_at = jetzt.
+ * Ohne Name / Telefon.
  *
  * Falls `table_id` mitgegeben wird: Tisch direkt uebernehmen (User hat schon
  * am Plan gewaehlt). Sonst: autoAssign findet freien Tisch.
@@ -75,7 +76,7 @@ export async function POST(request: Request) {
       party_size: party,
       starts_at: now.toISOString(),
       duration_min: duration,
-      source: "Walk-In",
+      source: "Manuell",
       status: "Eingetroffen",
       note: body.note ?? null,
       auto_assigned: !body.table_id,

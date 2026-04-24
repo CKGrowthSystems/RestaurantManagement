@@ -38,13 +38,24 @@ export function Timeline({
 
   const nowRel = Math.min(spanHours, Math.max(0, now.getHours() + now.getMinutes() / 60 - baseHour));
 
-  const toneColor = (src: string) =>
-    src === "Voice-KI" ? "color-mix(in oklch, var(--hi-accent) 55%, var(--hi-surface))"
-      : src === "Telefon" ? "color-mix(in oklch, oklch(0.72 0.12 235) 45%, var(--hi-surface))"
-      : "rgba(255,255,255,0.13)";
-  const toneBorder = (src: string) =>
-    src === "Voice-KI" ? "var(--hi-accent)"
-      : src === "Telefon" ? "oklch(0.72 0.12 235)" : "rgba(255,255,255,0.25)";
+  // Source-Normalisierung (neue + alte Werte auf eine Kategorie mappen)
+  const srcCategory = (s: string): "voice" | "webseite" | "manuell" => {
+    if (s === "Voice-KI" || s === "Voice") return "voice";
+    if (s === "Telefon" || s === "Chatagent" || s === "Webseite") return "webseite";
+    return "manuell";
+  };
+  const toneColor = (src: string) => {
+    const c = srcCategory(src);
+    return c === "voice"    ? "color-mix(in oklch, var(--hi-accent) 55%, var(--hi-surface))"
+         : c === "webseite" ? "color-mix(in oklch, oklch(0.72 0.12 235) 45%, var(--hi-surface))"
+         :                    "rgba(255,255,255,0.13)";
+  };
+  const toneBorder = (src: string) => {
+    const c = srcCategory(src);
+    return c === "voice"    ? "var(--hi-accent)"
+         : c === "webseite" ? "oklch(0.72 0.12 235)"
+         :                    "rgba(255,255,255,0.25)";
+  };
 
   return (
     <HiCard style={{ padding: 0, overflow: "hidden" }}>
@@ -57,8 +68,8 @@ export function Timeline({
         </div>
         <div style={{ display: "flex", gap: 12, fontSize: 11, color: "var(--hi-muted-strong)" }}>
           <Legend tone="accent" label="Voice-KI" />
-          <Legend tone="info" label="Telefon" />
-          <Legend tone="neutral" label="Web / Walk-in" />
+          <Legend tone="info" label="Webseite" />
+          <Legend tone="neutral" label="Manuell" />
         </div>
       </div>
       <div style={{ padding: "12px 18px 18px", display: "flex", flexDirection: "column" }}>

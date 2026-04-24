@@ -61,7 +61,7 @@ export function NewReservationWizard({
       party_size: party,
       starts_at: startsAt.toISOString(),
       duration_min: duration,
-      source: "Web" as const,
+      source: "Manuell" as const,
       status: "Bestätigt" as const,
       note: note || null,
     };
