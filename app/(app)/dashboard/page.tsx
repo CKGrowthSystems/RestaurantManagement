@@ -55,6 +55,10 @@ export default async function DashboardPage() {
   const zoneList = (zones ?? []) as Zone[];
   const tableList = (tables ?? []) as { id: string; seats: number; zone_id: string | null }[];
   const allReservations = (reservations ?? []) as Reservation[];
+  // Nur aktive Reservierungen zaehlen — stornierte + No-Show ausblenden
+  const activeReservations = allReservations.filter(
+    (r) => r.status !== "Storniert" && r.status !== "No-Show"
+  );
   const pendingVoice = allReservations.filter((r) => r.status === "Offen" && r.source === "Voice-KI");
 
   const guestsToday = allReservations
@@ -98,7 +102,7 @@ export default async function DashboardPage() {
         displayName={displayName}
         weekday={weekday}
         dateLabel={dateLabel}
-        initialReservations={allReservations.length}
+        initialReservations={activeReservations.length}
         restaurantId={restaurantId}
         dayStartISO={todayStart.toISOString()}
         dayEndISO={todayEnd.toISOString()}
@@ -110,7 +114,7 @@ export default async function DashboardPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
           <Kpi label="Gäste heute" value={String(guestsToday)} foot={`/ ${capacity} Kap.`}
                sparkline={<Sparkline data={[30, 42, 38, 55, 62, 70, guestsToday || 1]} />} />
-          <Kpi label="Reservierungen" value={String(allReservations.length)}
+          <Kpi label="Reservierungen" value={String(activeReservations.length)}
                foot={`${pendingVoice.length} offen`}
                sparkline={<Sparkline data={[20, 28, 22, 30, 33, 35, allReservations.length || 1]} color="oklch(0.72 0.12 235)" />} />
           <Kpi label="Voice-KI Calls" value={String(voiceCallsToday ?? 0)} foot="heute"

@@ -87,10 +87,11 @@ export function ReservationsKanban({
     router.refresh();
   }
 
-  // Live berechnete Counts aus aktuellem Kanban-State. Reagiert sofort
-  // auf Drag-Statuswechsel, Edit-Modal-Aenderungen, Stornos, Realtime-Inserts.
-  const totalCount = items.length;
-  const pendingFlagged = items.filter((r) => r.auto_assigned && r.approval_reason && r.status === "Bestätigt").length;
+  // Live berechnete Counts aus aktuellem Kanban-State. Nur aktive zaehlen
+  // (stornierte oder No-Show sollen nicht in die Anzeige zaehlen).
+  const activeItems = items.filter((r) => r.status !== "Storniert" && r.status !== "No-Show");
+  const totalCount = activeItems.length;
+  const pendingFlagged = activeItems.filter((r) => r.auto_assigned && r.approval_reason && r.status === "Bestätigt").length;
   const subtitle = `${isToday ? "Heute" : dayLabel} · ${totalCount} Reservierung${totalCount === 1 ? "" : "en"}${pendingFlagged ? ` · ${pendingFlagged} mit Hinweis` : ""}`;
 
   return (

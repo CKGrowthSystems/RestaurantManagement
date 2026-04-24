@@ -22,8 +22,12 @@ export function DashboardTopbarLive({
   dayEndISO: string;
 }) {
   const resCount = useRealtimeCount("reservations", restaurantId, initialReservations, {
-    filter: (q) => q.gte("starts_at", dayStartISO).lt("starts_at", dayEndISO),
-    additionalFilterString: `day-${dayStartISO}`,
+    filter: (q) => q
+      .gte("starts_at", dayStartISO)
+      .lt("starts_at", dayEndISO)
+      .not("status", "eq", "Storniert")
+      .not("status", "eq", "No-Show"),
+    additionalFilterString: `day-${dayStartISO}-active`,
   });
   const firstName = displayName.split(" ")[0];
   return (
