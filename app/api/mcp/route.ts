@@ -17,6 +17,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { authenticateWebhook } from "@/lib/voice-auth";
 import { rankCandidates, autoAssign } from "@/lib/assignment";
 import { parseStartsAt, currentDateTimeInfo } from "@/lib/date-parsing";
+import { phonesMatch } from "@/lib/phone";
 import type { Reservation, TableRow, Zone } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -71,13 +72,15 @@ const TOOLS = [
   },
   {
     name: "cancel_reservation",
-    description: "Storniert eine bestehende Reservierung per phone + starts_at oder per reservation_id.",
+    description:
+      "Storniert eine bestehende Reservierung. WICHTIG: Frag den Gast IMMER nach dem NAMEN UND der TELEFONNUMMER und dem ursprüngliche Datum/Uhrzeit. Beides zusammen identifiziert die Reservierung eindeutig. Bei mehreren Treffern bekommst du eine NACHFRAGEN-Instruction mit den Optionen — frag den Gast dann nach Personenzahl oder zusätzlichem Detail. reservation_id ist alternativ wenn bekannt.",
     inputSchema: {
       type: "object",
       properties: {
-        reservation_id: { type: "string" },
-        phone: { type: "string" },
-        starts_at: { type: "string" },
+        reservation_id: { type: "string", description: "Direkte ID, falls bekannt — sonst leer lassen." },
+        guest_name: { type: "string", description: "Name des Gastes (Vor- oder Nachname reicht für unscharfe Suche)." },
+        phone: { type: "string", description: "Telefonnummer — Format egal (mit/ohne +49, mit/ohne Leerzeichen)." },
+        starts_at: { type: "string", description: "Datum + Uhrzeit als ISO-8601 mit Zeitzone (z. B. 2026-04-25T21:00:00+02:00) oder natürliche Angabe ('heute 21 Uhr', 'morgen 19:30')." },
       },
     },
   },
@@ -364,32 +367,113 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
 
   // ==================================================================
   // 5) cancel_reservation
+  // Robuste Suche: Name + Telefon + Zeitfenster. Beide Felder werden
+  // unscharf verglichen (Name case-insensitive partial, Telefon
+  // formatunabhaengig). Bei mehreren Treffern → NACHFRAGEN.
   // ==================================================================
   if (name === "cancel_reservation") {
-    let query = admin.from("reservations").update({ status: "Storniert" }).eq("restaurant_id", restaurantId);
+    // Fast-Path: direkte ID
     if (args.reservation_id) {
-      query = query.eq("id", args.reservation_id as string);
-    } else if (args.phone && args.starts_at) {
-      const parsed = parseStartsAt(args.starts_at as string);
-      if (!parsed.ok || !parsed.iso) {
-        return textContent({ instruction: "NACHFRAGEN: Datum unklar, bitte nochmal vom Gast bestätigen lassen." });
-      }
-      const start = new Date(parsed.iso);
-      query = query.eq("phone", args.phone as string)
-        .gte("starts_at", new Date(start.getTime() - 30 * 60_000).toISOString())
-        .lte("starts_at", new Date(start.getTime() + 30 * 60_000).toISOString())
-        .not("status", "eq", "Storniert");
-    } else {
-      return textContent({ instruction: "NACHFRAGEN: Entweder reservation_id oder phone + starts_at angeben. Frage den Gast nach Telefonnummer und ursprünglichem Termin." });
+      const { data, error } = await admin.from("reservations")
+        .update({ status: "Storniert" })
+        .eq("id", args.reservation_id as string)
+        .eq("restaurant_id", restaurantId)
+        .select("id, guest_name").single();
+      if (error || !data) return textContent({ instruction: "NACHFRAGEN: Diese Reservierungs-ID konnte ich nicht finden." });
+      return textContent({
+        cancelled: 1,
+        instruction: `FERTIG: Reservierung von ${data.guest_name} storniert. Sage dem Gast: "Hab ich für Sie storniert, kein Problem."`,
+      });
     }
-    const { data, error } = await query.select();
-    if (error) return textContent({ instruction: `ABSAGEN: Storno fehlgeschlagen (${error.message}).` });
-    const n = data?.length ?? 0;
+
+    // Wir brauchen mindestens starts_at + (name oder phone)
+    if (!args.starts_at) {
+      return textContent({
+        instruction: "NACHFRAGEN: Frag den Gast nach Namen, Telefonnummer und ursprünglichem Datum/Uhrzeit der Reservierung.",
+      });
+    }
+    if (!args.guest_name && !args.phone) {
+      return textContent({
+        instruction: "NACHFRAGEN: Frag den Gast nach dem Namen UND der Telefonnummer der Reservierung — beides zusammen identifiziert sie eindeutig.",
+      });
+    }
+
+    const parsed = parseStartsAt(args.starts_at as string);
+    if (!parsed.ok || !parsed.iso) {
+      return textContent({
+        instruction: `NACHFRAGEN: Datum/Uhrzeit unklar (${parsed.error ?? "unbekannt"}). Frag nochmal nach dem genauen Termin.`,
+      });
+    }
+
+    const start = new Date(parsed.iso);
+    // 60-Minuten-Fenster um den genannten Zeitpunkt — falls Gast etwas neben der echten Zeit ratet
+    const { data: candidates } = await admin.from("reservations")
+      .select("id, guest_name, phone, party_size, starts_at, table_id")
+      .eq("restaurant_id", restaurantId)
+      .gte("starts_at", new Date(start.getTime() - 60 * 60_000).toISOString())
+      .lte("starts_at", new Date(start.getTime() + 60 * 60_000).toISOString())
+      .not("status", "eq", "Storniert")
+      .order("starts_at");
+
+    type Cand = { id: string; guest_name: string; phone: string | null; party_size: number; starts_at: string; table_id: string | null };
+    const all = (candidates ?? []) as Cand[];
+
+    // Score: Name-Match + Phone-Match. Beide → 2, eines → 1, keins → 0.
+    const searchName = (args.guest_name as string | undefined)?.trim().toLowerCase() ?? "";
+    const searchPhone = (args.phone as string | undefined) ?? "";
+    const scored = all.map((c) => {
+      const nameHit = !!searchName && c.guest_name?.toLowerCase().includes(searchName);
+      const phoneHit = !!searchPhone && phonesMatch(c.phone, searchPhone);
+      return { c, score: (nameHit ? 1 : 0) + (phoneHit ? 1 : 0), nameHit, phoneHit };
+    }).filter((s) => s.score > 0);
+
+    // Bevorzugt volle Treffer (score 2), sonst halb-Treffer (score 1)
+    const best = scored.filter((s) => s.score === 2);
+    const half = scored.filter((s) => s.score === 1);
+    const matches = best.length > 0 ? best : half;
+
+    if (matches.length === 0) {
+      const nearbyList = all.slice(0, 4).map((c) =>
+        `${c.guest_name} (${c.party_size}P, ${new Date(c.starts_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" })})`
+      ).join(", ");
+      return textContent({
+        instruction: nearbyList
+          ? `NACHFRAGEN: Mit Name „${searchName}" und Telefon „${searchPhone}" habe ich keine Reservierung um ${parsed.berlinLocal} gefunden. In dem Zeitfenster habe ich aber: ${nearbyList}. Frag den Gast ob einer davon passt oder ob die Zeit eine andere war.`
+          : `NACHFRAGEN: Ich finde keine Reservierung in dem Zeitfenster. Vielleicht falsches Datum? Frag den Gast nochmal nach dem genauen Tag.`,
+      });
+    }
+
+    if (matches.length > 1) {
+      // Mehrdeutig: AI soll nach Personenzahl oder weiterem Detail fragen
+      const list = matches.slice(0, 3).map((s) =>
+        `${s.c.guest_name} (${s.c.party_size} Personen, ${new Date(s.c.starts_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" })})`
+      ).join(" oder ");
+      return textContent({
+        instruction: `NACHFRAGEN: Ich finde mehrere passende Reservierungen: ${list}. Frag den Gast nach der Personenzahl oder zusätzlichem Detail um die richtige zu finden.`,
+      });
+    }
+
+    // Genau einer → stornieren
+    const target = matches[0].c;
+    const { error: updErr } = await admin.from("reservations")
+      .update({ status: "Storniert" })
+      .eq("id", target.id)
+      .eq("restaurant_id", restaurantId);
+    if (updErr) {
+      return textContent({ instruction: `ABSAGEN: Storno fehlgeschlagen (${updErr.message}). Bitte nochmal versuchen.` });
+    }
+
+    const matchKind = matches[0].score === 2 ? "Name + Telefon" : matches[0].nameHit ? "Name" : "Telefon";
     return textContent({
-      cancelled: n,
-      instruction: n > 0
-        ? `FERTIG: ${n} Reservierung storniert. Sage dem Gast: "Ich habe Ihre Reservierung storniert."`
-        : `NACHFRAGEN: Keine passende Reservierung gefunden. Prüfe Telefonnummer und Zeitpunkt mit dem Gast.`,
+      cancelled: 1,
+      cancelled_reservation: {
+        id: target.id,
+        name: target.guest_name,
+        party_size: target.party_size,
+        starts_at: target.starts_at,
+      },
+      match_kind: matchKind,
+      instruction: `FERTIG: Reservierung von ${target.guest_name} (${target.party_size} Personen, ${parsed.berlinLocal}) storniert. Sage dem Gast wörtlich: "Hab ich für Sie storniert, kein Problem. Schönen Tag noch."`,
     });
   }
 
