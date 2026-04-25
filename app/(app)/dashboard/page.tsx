@@ -1,11 +1,10 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { getTenantContext } from "@/lib/tenant";
 import { VoiceBanner } from "@/components/shell";
-import { HiBtn, HiCard, HiIcon, HiPill, HiSource } from "@/components/primitives";
+import { HiCard, HiIcon, HiPill } from "@/components/primitives";
 import { Sparkline } from "@/components/charts";
 import { Timeline } from "@/components/timeline";
-import type { Reservation, Zone } from "@/lib/types";
+import type { Reservation, Zone, VoiceCall } from "@/lib/types";
 import { ConfirmVoiceForm } from "./confirm-voice";
 import { DashboardTopbarLive } from "./topbar-live";
 import { UpcomingArrivalsLive } from "./upcoming-live";
@@ -25,14 +24,17 @@ export default async function DashboardPage() {
 
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const todayEnd = new Date(todayStart); todayEnd.setDate(todayEnd.getDate() + 1);
+  // 7-Tage-Fenster fuer Sparklines (heute minus 6 Tage bis Tagesende heute).
+  const weekStart = new Date(todayStart); weekStart.setDate(weekStart.getDate() - 6);
 
   const [
     { data: tables },
     { data: zones },
     { data: reservations },
     { data: voiceCalls },
-    { count: todayGuestCount },
     { count: voiceCallsToday },
+    { data: weekReservations },
+    { data: weekVoiceCalls },
   ] = await Promise.all([
     supabase.from("tables").select("*").eq("restaurant_id", restaurantId),
     supabase.from("zones").select("*").eq("restaurant_id", restaurantId).order("sort_order"),
@@ -45,13 +47,17 @@ export default async function DashboardPage() {
       .eq("restaurant_id", restaurantId)
       .gte("started_at", todayStart.toISOString())
       .order("started_at", { ascending: false }),
-    supabase.from("reservations").select("party_size", { count: "exact", head: true })
-      .eq("restaurant_id", restaurantId)
-      .gte("starts_at", todayStart.toISOString())
-      .lt("starts_at", todayEnd.toISOString()),
     supabase.from("voice_calls").select("*", { count: "exact", head: true })
       .eq("restaurant_id", restaurantId)
       .gte("started_at", todayStart.toISOString()),
+    supabase.from("reservations").select("starts_at, party_size, status")
+      .eq("restaurant_id", restaurantId)
+      .gte("starts_at", weekStart.toISOString())
+      .lt("starts_at", todayEnd.toISOString()),
+    supabase.from("voice_calls").select("started_at")
+      .eq("restaurant_id", restaurantId)
+      .gte("started_at", weekStart.toISOString())
+      .lt("started_at", todayEnd.toISOString()),
   ]);
 
   const zoneList = (zones ?? []) as Zone[];
@@ -93,6 +99,42 @@ export default async function DashboardPage() {
     .filter((r) => new Date(r.starts_at).getTime() >= Date.now() - 5 * 60_000)
     .slice(0, 5);
 
+  // 7-Tage-Buckets fuer die Sparklines: Index 0 = heute - 6 Tage, Index 6 = heute
+  type WeekRes = { starts_at: string; party_size: number; status: string };
+  type WeekCall = { started_at: string };
+  const wRes = (weekReservations ?? []) as WeekRes[];
+  const wCalls = (weekVoiceCalls ?? []) as WeekCall[];
+  const dayKey = (iso: string) => {
+    const d = new Date(iso);
+    d.setHours(0, 0, 0, 0);
+    return Math.floor((d.getTime() - weekStart.getTime()) / 86_400_000);
+  };
+  const guestsByDay = Array(7).fill(0) as number[];
+  const reservationsByDay = Array(7).fill(0) as number[];
+  const voiceByDay = Array(7).fill(0) as number[];
+  const occByDay = Array(7).fill(0) as number[];
+  for (const r of wRes) {
+    const k = dayKey(r.starts_at);
+    if (k < 0 || k > 6) continue;
+    if (r.status !== "Storniert" && r.status !== "No-Show") {
+      guestsByDay[k] += r.party_size;
+    }
+    if (r.status !== "Storniert") reservationsByDay[k] += 1;
+  }
+  for (const c of wCalls) {
+    const k = dayKey(c.started_at);
+    if (k < 0 || k > 6) continue;
+    voiceByDay[k] += 1;
+  }
+  for (let i = 0; i < 7; i++) {
+    occByDay[i] = capacity > 0 ? Math.round((guestsByDay[i] / capacity) * 100) : 0;
+  }
+  // Sparkline-Daten: Mindestwert 1 damit die Linie auch bei 0 sichtbar ist.
+  const guestsSpark = guestsByDay.map((v) => Math.max(1, v));
+  const reservationsSpark = reservationsByDay.map((v) => Math.max(1, v));
+  const voiceSpark = voiceByDay.map((v) => Math.max(1, v));
+  const occSpark = occByDay.map((v) => Math.max(1, v));
+
   const now = new Date();
   const greet = now.getHours() < 11 ? "Guten Morgen" : now.getHours() < 17 ? "Guten Tag" : "Guten Abend";
   const weekday = now.toLocaleDateString("de-DE", { weekday: "long" });
@@ -118,14 +160,14 @@ export default async function DashboardPage() {
       <div style={{ padding: "20px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
           <Kpi label="Gäste heute" value={String(guestsToday)} foot={`/ ${capacity} Kap.`}
-               sparkline={<Sparkline data={[30, 42, 38, 55, 62, 70, guestsToday || 1]} />} />
+               sparkline={<Sparkline data={guestsSpark} />} />
           <Kpi label="Reservierungen" value={String(activeReservations.length)}
                foot={`${pendingVoice.length} offen`}
-               sparkline={<Sparkline data={[20, 28, 22, 30, 33, 35, allReservations.length || 1]} color="oklch(0.72 0.12 235)" />} />
+               sparkline={<Sparkline data={reservationsSpark} color="oklch(0.72 0.12 235)" />} />
           <Kpi label="Voice-KI Calls" value={String(voiceCallsToday ?? 0)} foot="heute"
-               sparkline={<Sparkline data={[2, 5, 3, 8, 10, 12, voiceCallsToday ?? 1]} color="var(--hi-accent)" />} />
+               sparkline={<Sparkline data={voiceSpark} color="var(--hi-accent)" />} />
           <Kpi label="Auslastung" value={`${occupancyPct}%`} foot={`Spitze ${occupancyPct >= 85 ? "jetzt" : "21:00"}`}
-               sparkline={<Sparkline data={[45, 52, 60, 68, 70, 66, Math.max(1, occupancyPct)]} color="oklch(0.75 0.14 70)" />} />
+               sparkline={<Sparkline data={occSpark} color="oklch(0.75 0.14 70)" />} />
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 18 }}>
@@ -169,10 +211,10 @@ export default async function DashboardPage() {
           <HiCard style={{ padding: 0 }}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--hi-line)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: "var(--hi-ink)" }}>Aktivität</div>
-              <HiBtn kind="ghost" size="sm">Log</HiBtn>
+              <HiPill tone="neutral" dot>Heute</HiPill>
             </div>
             <div style={{ padding: "4px 0" }}>
-              {(voiceCalls ?? []).slice(0, 4).map((c) => (
+              {((voiceCalls ?? []) as VoiceCall[]).slice(0, 4).map((c) => (
                 <div key={c.id} style={{
                   padding: "10px 18px",
                   display: "grid", gridTemplateColumns: "40px 24px 1fr",

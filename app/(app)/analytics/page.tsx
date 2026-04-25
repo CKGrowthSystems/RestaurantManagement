@@ -1,38 +1,76 @@
 import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/tenant";
 import { Topbar } from "@/components/shell";
-import { HiBtn, HiCard, HiPill } from "@/components/primitives";
+import { HiCard, HiPill } from "@/components/primitives";
+import { AnalyticsHeader } from "./header";
 import type { Reservation } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export default async function AnalyticsPage() {
+type Period = "today" | "week" | "month";
+
+function computeRange(period: Period) {
+  const now = new Date();
+  if (period === "today") {
+    const from = new Date(now); from.setHours(0, 0, 0, 0);
+    const to = new Date(from); to.setDate(to.getDate() + 1);
+    return { from, to, days: 1 };
+  }
+  if (period === "month") {
+    const from = new Date(now); from.setHours(0, 0, 0, 0); from.setDate(from.getDate() - 29);
+    const to = new Date(now); to.setHours(23, 59, 59, 999);
+    return { from, to, days: 30 };
+  }
+  const from = new Date(now); from.setHours(0, 0, 0, 0); from.setDate(from.getDate() - 6);
+  const to = new Date(now); to.setHours(23, 59, 59, 999);
+  return { from, to, days: 7 };
+}
+
+export default async function AnalyticsPage({
+  searchParams,
+}: { searchParams: Promise<{ period?: string }> }) {
   const ctx = await getTenantContext();
   if (!ctx) redirect("/login");
   const { supabase, restaurantId } = ctx;
 
-  const weekStart = new Date(); weekStart.setHours(0, 0, 0, 0);
-  weekStart.setDate(weekStart.getDate() - 6);
+  const sp = await searchParams;
+  const period: Period =
+    sp.period === "today" || sp.period === "month" ? sp.period : "week";
+  const { from: rangeStart, to: rangeEnd, days: rangeDays } = computeRange(period);
 
   const [{ data: reservations }, { count: noShows }, { data: tables }] = await Promise.all([
     supabase.from("reservations").select("*")
       .eq("restaurant_id", restaurantId)
-      .gte("starts_at", weekStart.toISOString())
+      .gte("starts_at", rangeStart.toISOString())
+      .lt("starts_at", rangeEnd.toISOString())
       .order("starts_at"),
     supabase.from("reservations").select("*", { count: "exact", head: true })
       .eq("restaurant_id", restaurantId)
       .eq("status", "No-Show")
-      .gte("starts_at", weekStart.toISOString()),
+      .gte("starts_at", rangeStart.toISOString())
+      .lt("starts_at", rangeEnd.toISOString()),
     supabase.from("tables").select("seats").eq("restaurant_id", restaurantId),
   ]);
 
   const rs = (reservations ?? []) as Reservation[];
   const totalGuests = rs.filter((r) => r.status !== "Storniert").reduce((s, r) => s + r.party_size, 0);
-  const capacity = (tables ?? []).reduce((s, t) => s + t.seats, 0);
+  const capacity = ((tables ?? []) as { seats: number }[]).reduce((s, t) => s + t.seats, 0);
 
-  const dayLabels = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
-  const days: number[] = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart); d.setDate(d.getDate() + i);
+  // Pro Tag/Bucket aggregieren — fuer Periode 1 Tag = nur 1 Bucket,
+  // 7 Tage = 7 Buckets, 30 Tage = 30 Buckets aber wir zeigen die letzten 7
+  // im Chart (sonst zu unleserlich) und nutzen die anderen nur fuer KPIs.
+  const chartDays = Math.min(rangeDays, 7);
+  const dayLabelsFmt = new Intl.DateTimeFormat("de-DE", { weekday: "short", timeZone: "Europe/Berlin" });
+  const chartStart = new Date(rangeEnd);
+  chartStart.setHours(0, 0, 0, 0);
+  chartStart.setDate(chartStart.getDate() - (chartDays - 1));
+
+  const dayLabels: string[] = Array.from({ length: chartDays }, (_, i) => {
+    const d = new Date(chartStart); d.setDate(d.getDate() + i);
+    return dayLabelsFmt.format(d);
+  });
+  const days: number[] = Array.from({ length: chartDays }, (_, i) => {
+    const d = new Date(chartStart); d.setDate(d.getDate() + i);
     const end = new Date(d); end.setDate(end.getDate() + 1);
     return rs
       .filter((r) => {
@@ -65,24 +103,25 @@ export default async function AnalyticsPage() {
       "oklch(0.7 0.12 145)", // Manuell
   }));
 
-  const avgOcc = capacity > 0 ? Math.round(((totalGuests / 7) / capacity) * 100) : 0;
+  const avgOcc = capacity > 0 ? Math.round(((totalGuests / rangeDays) / capacity) * 100) : 0;
   const voiceShare = rs.length ? Math.round((sourceCounts["Voice-KI"] / rs.length) * 100) : 0;
+
+  const periodLabel =
+    period === "today" ? "Heute" :
+    period === "month" ? "Letzte 30 Tage" :
+    "Letzte 7 Tage";
+  const dateRangeLabel = `${rangeStart.toLocaleDateString("de-DE")} – ${new Date().toLocaleDateString("de-DE")}`;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
       <Topbar
         title="Analytics"
-        subtitle={`Diese Woche · ${weekStart.toLocaleDateString("de-DE")} – ${new Date().toLocaleDateString("de-DE")}`}
-        right={
-          <div style={{ display: "flex", gap: 8 }}>
-            <HiBtn kind="outline" size="md">Diese Woche</HiBtn>
-            <HiBtn kind="ghost" size="md" icon="export">Export CSV</HiBtn>
-          </div>
-        }
+        subtitle={`${periodLabel} · ${dateRangeLabel}`}
+        right={<AnalyticsHeader active={period} />}
       />
       <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
-          <Kpi k="Gäste gesamt" v={String(totalGuests)} d="diese Woche" tone="success" />
+          <Kpi k="Gäste gesamt" v={String(totalGuests)} d={periodLabel.toLowerCase()} tone="success" />
           <Kpi k="Ø Auslastung" v={`${avgOcc}%`} d="pro Tag" tone="success" />
           <Kpi k="No-Shows" v={String(noShows ?? 0)} d={rs.length ? `${Math.round(((noShows ?? 0) / rs.length) * 100)}%` : "—"} tone="warn" />
           <Kpi k="Voice-KI Anteil" v={`${voiceShare}%`} d="aller Quellen" tone="accent" />
@@ -151,7 +190,7 @@ export default async function AnalyticsPage() {
           <HiCard style={{ padding: 0 }}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--hi-line)" }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: "var(--hi-ink)" }}>Reservierungsquellen</div>
-              <div style={{ fontSize: 11.5, color: "var(--hi-muted)" }}>Verteilung der Woche</div>
+              <div style={{ fontSize: 11.5, color: "var(--hi-muted)" }}>Verteilung · {periodLabel.toLowerCase()}</div>
             </div>
             <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
               <div style={{ display: "flex", height: 10, borderRadius: 5, overflow: "hidden" }}>

@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/tenant";
 import { Topbar } from "@/components/shell";
-import { HiBtn, HiCard, HiIcon, HiPill } from "@/components/primitives";
+import { HiCard, HiPill } from "@/components/primitives";
 import type { VoiceCall } from "@/lib/types";
 import { CopyWebhookUrl } from "./copy-url";
 import { IntegrationWizard } from "./integration-wizard";
@@ -56,7 +56,6 @@ export default async function VoicePage() {
         right={
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <HiPill tone="success" dot>Webhook Live</HiPill>
-            <HiBtn kind="outline" size="md" icon="edit">Prompt bearbeiten</HiBtn>
           </div>
         }
       />

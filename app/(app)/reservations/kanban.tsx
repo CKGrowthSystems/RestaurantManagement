@@ -68,6 +68,17 @@ export function ReservationsKanban({
     router.push(`/reservations${qs ? `?${qs}` : ""}`);
   }
 
+  function exportCsv() {
+    // Nutzt den vorhandenen Analytics-Export-Endpoint im custom-Mode mit
+    // selectedDate fuer Start und Ende — gibt genau den aktuell sichtbaren
+    // Tag als CSV zurueck.
+    const qs = new URLSearchParams();
+    qs.set("period", "custom");
+    qs.set("from", selectedDate);
+    qs.set("to", selectedDate);
+    window.location.href = `/api/analytics/export?${qs.toString()}`;
+  }
+
   const isToday = selectedDate === today;
   const [y, m, d] = selectedDate.split("-").map(Number);
   const dayLabel = new Intl.DateTimeFormat("de-DE", {
@@ -121,6 +132,9 @@ export function ReservationsKanban({
         subtitle={subtitle}
         right={
           <div style={{ display: "flex", gap: 8 }}>
+            <HiBtn kind="ghost" size="md" icon="export" onClick={exportCsv}>
+              CSV
+            </HiBtn>
             <HiBtn kind="outline" size="md" icon="plus" onClick={() => setShowWalkIn(true)}>
               Walk-In
             </HiBtn>

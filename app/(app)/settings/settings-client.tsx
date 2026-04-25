@@ -145,18 +145,21 @@ export function SettingsClient({ initial }: { initial: Settings }) {
                 </div>
               </HiCard>
 
-              <div style={{ fontSize: 11, color: "var(--hi-muted)", fontWeight: 600, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 }}>
-                Live-Vorschau
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: "var(--hi-muted)", fontWeight: 600, letterSpacing: 0.8, textTransform: "uppercase" }}>
+                  Vorschau
+                </div>
+                <HiPill tone="neutral" style={{ fontSize: 9.5, padding: "1px 6px" }}>Beispiel</HiPill>
               </div>
               <HiCard style={{ padding: 18 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                   <HiTable shape="round" seats={4} label="A2" status="countdown" size={52} countdown={`${String(hold).padStart(2, "0")}:00`} />
                   <div>
                     <div style={{ fontSize: 13, color: "var(--hi-ink)", fontWeight: 500 }}>
-                      Reservierung 19:30 · Müller · 4 Personen
+                      So sieht ein Tisch aus, wenn der Gast nicht erschienen ist
                     </div>
                     <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginTop: 2 }}>
-                      Gast nicht erschienen · Timer läuft seit 19:30 · Freigabe nach {hold} Min.
+                      Timer läuft · Tisch wird automatisch nach {hold} Min. wieder freigegeben
                     </div>
                   </div>
                 </div>
