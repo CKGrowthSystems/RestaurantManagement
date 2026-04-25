@@ -356,7 +356,11 @@ function OpeningHoursTab({
                     }}
                   >
                     <HiIcon kind="plus" size={11} />
-                    {slots.length === 0 ? "Öffnungszeit hinzufügen" : "Zweiten Zeitraum hinzufügen (z. B. nach Mittagspause)"}
+                    {slots.length === 0
+                      ? "Öffnungszeit hinzufügen"
+                      : slots.length === 1
+                      ? "Zweiten Zeitraum hinzufügen (z. B. nach Mittagspause)"
+                      : "Dritten Zeitraum hinzufügen"}
                   </button>
                 )}
               </div>

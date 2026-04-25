@@ -287,8 +287,65 @@ export function Topbar({
         </h1>
         {subtitle && <div style={{ fontSize: 12, color: "var(--hi-muted)", marginTop: 2 }}>{subtitle}</div>}
       </div>
+      <ThemeToggle />
       {right}
     </header>
+  );
+}
+
+/**
+ * Light/Dark-Toggle. State liegt in localStorage, wird beim Mount von der
+ * Inline-Skript-Funktion (siehe app/layout.tsx) bereits ohne Flash gesetzt.
+ * Hier nur das UI fuer das Toggling.
+ */
+function ThemeToggle() {
+  const [scheme, setScheme] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
+    const current = (typeof document !== "undefined"
+      ? document.documentElement.getAttribute("data-color-scheme")
+      : null) as "dark" | "light" | null;
+    if (current === "light" || current === "dark") setScheme(current);
+  }, []);
+
+  function toggle() {
+    const next = scheme === "dark" ? "light" : "dark";
+    setScheme(next);
+    if (typeof document !== "undefined") {
+      document.documentElement.setAttribute("data-color-scheme", next);
+    }
+    try { localStorage.setItem("rhodos.theme", next); } catch {}
+  }
+
+  const isLight = scheme === "light";
+  return (
+    <button
+      onClick={toggle}
+      title={isLight ? "Auf Dunkel-Modus wechseln" : "Auf Hell-Modus wechseln"}
+      aria-label="Theme wechseln"
+      style={{
+        width: 32, height: 32, borderRadius: 8,
+        background: "var(--hi-surface)",
+        border: "1px solid var(--hi-line)",
+        color: "var(--hi-muted-strong)",
+        cursor: "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexShrink: 0,
+      }}
+    >
+      {isLight ? (
+        // Mond (zeigt: aktuell hell, wechselt zu dunkel)
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+      ) : (
+        // Sonne (zeigt: aktuell dunkel, wechselt zu hell)
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+        </svg>
+      )}
+    </button>
   );
 }
 

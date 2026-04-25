@@ -32,9 +32,27 @@ export const viewport: Viewport = {
   themeColor: "#a8732f",
 };
 
+// Wird VOR dem React-Hydration ausgefuehrt — verhindert das „Flash of Wrong
+// Theme" wenn der User Light eingestellt hat und die Seite neu laedt.
+const themeBootstrap = `
+(function () {
+  try {
+    var saved = localStorage.getItem('rhodos.theme');
+    if (saved === 'light' || saved === 'dark') {
+      document.documentElement.setAttribute('data-color-scheme', saved);
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+      document.documentElement.setAttribute('data-color-scheme', 'light');
+    }
+  } catch (e) {}
+})();
+`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="de" data-theme="default" className={`${geist.variable} ${geistMono.variable}`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
+      </head>
       <body>{children}</body>
     </html>
   );

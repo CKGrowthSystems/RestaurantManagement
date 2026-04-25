@@ -1,6 +1,22 @@
+/* ============================================================
+   Theme — Dark (default) und Light
+   Toggle ueber [data-color-scheme="light"] auf <html>.
+   Standard ist dark damit es bei SSR keinen Flash gibt — der
+   Light-Mode wird per Cookie/localStorage clientseitig aktiviert.
+   ============================================================ */
+
 :root {
+  /* Akzent (gleicher Ton in beiden Modi) */
   --hi-accent: oklch(0.72 0.11 65);
   --hi-on-accent: oklch(0.15 0.02 60);
+
+  /* Status-Farben (in beiden Modi gleich, nur leicht angepasst per Mode) */
+  --hi-success: oklch(0.72 0.12 145);
+  --hi-warn: oklch(0.75 0.14 70);
+  --hi-danger: oklch(0.66 0.2 25);
+  --hi-info: oklch(0.72 0.12 235);
+
+  /* Dark-Palette (Default) */
   --hi-bg: oklch(0.18 0.008 250);
   --hi-surface: oklch(0.215 0.008 250);
   --hi-surface-raised: oklch(0.255 0.01 250);
@@ -9,11 +25,32 @@
   --hi-ink: oklch(0.96 0.005 250);
   --hi-muted-strong: oklch(0.78 0.01 250);
   --hi-muted: oklch(0.6 0.01 250);
-  --hi-success: oklch(0.72 0.12 145);
-  --hi-warn: oklch(0.75 0.14 70);
-  --hi-danger: oklch(0.66 0.2 25);
-  --hi-info: oklch(0.72 0.12 235);
 }
+
+/* Light-Mode: warm-neutral, gut lesbar, dezent kontrastiert */
+:root[data-color-scheme="light"] {
+  --hi-bg: oklch(0.985 0.003 80);
+  --hi-surface: oklch(0.97 0.004 80);
+  --hi-surface-raised: oklch(0.945 0.006 80);
+  --hi-line: oklch(0.88 0.006 80);
+  --hi-line-strong: oklch(0.76 0.008 80);
+  --hi-ink: oklch(0.22 0.012 250);
+  --hi-muted-strong: oklch(0.42 0.012 250);
+  --hi-muted: oklch(0.58 0.012 250);
+
+  /* Akzent etwas saturierter, damit auf hellem Bg sichtbar */
+  --hi-accent: oklch(0.62 0.13 65);
+  --hi-on-accent: oklch(0.99 0 0);
+
+  /* Status-Farben in Light leicht dunkler, fuer Kontrast auf hellem Bg */
+  --hi-success: oklch(0.55 0.16 145);
+  --hi-warn: oklch(0.62 0.16 70);
+  --hi-danger: oklch(0.58 0.22 25);
+  --hi-info: oklch(0.55 0.15 235);
+
+  color-scheme: light;
+}
+
 [data-theme="indigo"]  { --hi-accent: oklch(0.68 0.18 265); --hi-on-accent: oklch(0.98 0 0); }
 [data-theme="emerald"] { --hi-accent: oklch(0.72 0.16 155); --hi-on-accent: oklch(0.15 0.04 155); }
 [data-theme="crimson"] { --hi-accent: oklch(0.66 0.2 25);   --hi-on-accent: oklch(0.98 0 0); }
