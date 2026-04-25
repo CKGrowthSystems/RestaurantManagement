@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HiBtn, HiCard, HiIcon, HiPill, HiTable } from "@/components/primitives";
 import type { Settings, ReleaseMode, Branding, Notify, AppUser } from "@/lib/types";
 
@@ -440,6 +440,169 @@ const COLOR_PRESETS = [
   { label: "Onyx",              primary: "#1A1A1A", accent: "#D4AF37" },
 ];
 
+/**
+ * Logo-Upload als eigene Card. Nimmt eine PNG/JPG/SVG-Datei (max 2 MB),
+ * laedt sie via /api/branding/logo zu Supabase Storage hoch, schreibt
+ * settings.branding.logo_url und zeigt sofort eine Vorschau.
+ */
+function LogoUploadCard({ branding, setBranding }: { branding: Branding; setBranding: (b: Branding) => void }) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null); setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/branding/logo", { method: "POST", body: form });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setBranding({ ...branding, logo_url: data.logo_url });
+    } catch (err: any) {
+      setError(err?.message ?? "Upload fehlgeschlagen");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function onRemove() {
+    if (!confirm("Logo wirklich entfernen?")) return;
+    setError(null); setUploading(true);
+    try {
+      const res = await fetch("/api/branding/logo", { method: "DELETE" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      setBranding({ ...branding, logo_url: null });
+    } catch (err: any) {
+      setError(err?.message ?? "Entfernen fehlgeschlagen");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <HiCard style={{ padding: 20, marginBottom: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Logo</div>
+      <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 12 }}>
+        PNG, JPG, SVG oder WebP — max. 2 MB. Wird in der Sidebar und in E-Mails an Gäste verwendet.
+      </div>
+
+      {branding.logo_url ? (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 14,
+          padding: 14, borderRadius: 8,
+          background: "var(--hi-surface-raised)",
+          border: "1px solid var(--hi-line)",
+        }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={branding.logo_url}
+            alt="Logo-Vorschau"
+            style={{
+              maxHeight: 48, maxWidth: 140, objectFit: "contain",
+              background: "rgba(255,255,255,0.04)",
+              padding: 6, borderRadius: 6,
+            }}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, color: "var(--hi-ink)", fontWeight: 500 }}>Aktives Logo</div>
+            <div style={{ fontSize: 10.5, color: "var(--hi-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: '"Geist Mono", monospace', marginTop: 2 }}>
+              {branding.logo_url}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              style={smallBtn}
+            >
+              {uploading ? "Lädt…" : "Ersetzen"}
+            </button>
+            <button
+              onClick={onRemove}
+              disabled={uploading}
+              style={{ ...smallBtn, color: "oklch(0.74 0.16 25)", borderColor: "color-mix(in oklch, oklch(0.66 0.2 25) 30%, var(--hi-line))" }}
+            >
+              Entfernen
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = "var(--hi-accent)"; }}
+          onDragLeave={(e) => { e.currentTarget.style.borderColor = "var(--hi-line)"; }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.currentTarget.style.borderColor = "var(--hi-line)";
+            const file = e.dataTransfer.files?.[0];
+            if (file && fileInputRef.current) {
+              const dt = new DataTransfer();
+              dt.items.add(file);
+              fileInputRef.current.files = dt.files;
+              fileInputRef.current.dispatchEvent(new Event("change", { bubbles: true }));
+            }
+          }}
+          style={{
+            cursor: uploading ? "wait" : "pointer",
+            padding: "26px 18px",
+            borderRadius: 10,
+            border: "1.6px dashed var(--hi-line)",
+            textAlign: "center",
+            background: "var(--hi-surface-raised)",
+            color: "var(--hi-muted-strong)",
+            fontSize: 13,
+            transition: "border-color 120ms ease, background 120ms ease",
+          }}
+        >
+          <div style={{ fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>
+            {uploading ? "Lädt hoch…" : "Logo auswählen oder hierher ziehen"}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--hi-muted)" }}>
+            PNG · JPG · SVG · WebP — empfohlen 256×256 px, transparenter Hintergrund
+          </div>
+        </div>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp"
+        onChange={onPick}
+        style={{ display: "none" }}
+      />
+
+      {error && (
+        <div style={{
+          marginTop: 10, padding: "8px 12px", borderRadius: 7, fontSize: 12,
+          background: "color-mix(in oklch, oklch(0.66 0.2 25) 15%, transparent)",
+          color: "oklch(0.82 0.14 25)",
+          border: "1px solid color-mix(in oklch, oklch(0.66 0.2 25) 40%, var(--hi-line))",
+        }}>
+          {error}
+        </div>
+      )}
+    </HiCard>
+  );
+}
+
+const smallBtn: React.CSSProperties = {
+  padding: "5px 10px", borderRadius: 6, fontSize: 11.5, fontWeight: 500,
+  background: "var(--hi-surface)",
+  border: "1px solid var(--hi-line)",
+  color: "var(--hi-ink)",
+  cursor: "pointer",
+};
+
 function ThemeTab({ branding, setBranding }: { branding: Branding; setBranding: (b: Branding) => void }) {
   return (
     <>
@@ -461,25 +624,7 @@ function ThemeTab({ branding, setBranding }: { branding: Branding; setBranding: 
         </div>
       </HiCard>
 
-      <HiCard style={{ padding: 20, marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Logo-URL</div>
-        <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 10 }}>
-          Einfache URL zu einer PNG/SVG. Upload-Funktion folgt.
-        </div>
-        <input
-          type="url"
-          placeholder="https://..."
-          value={branding.logo_url ?? ""}
-          onChange={(e) => setBranding({ ...branding, logo_url: e.target.value || null })}
-          style={textInputStyle}
-        />
-        {branding.logo_url && (
-          <div style={{ marginTop: 12, padding: 12, background: "var(--hi-surface-raised)", borderRadius: 6, display: "flex", alignItems: "center", gap: 10 }}>
-            <img src={branding.logo_url} alt="Logo" style={{ maxHeight: 40, maxWidth: 120, objectFit: "contain" }} />
-            <span style={{ fontSize: 11.5, color: "var(--hi-muted)" }}>Vorschau</span>
-          </div>
-        )}
-      </HiCard>
+      <LogoUploadCard branding={branding} setBranding={setBranding} />
 
       <HiCard style={{ padding: 20, marginBottom: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 12 }}>Farbschema</div>

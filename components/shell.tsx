@@ -101,17 +101,20 @@ export function Sidebar({
         transition: "width 180ms ease, padding 180ms ease",
       }}
     >
-      {/* Kopf: Logo/Title + Collapse-Toggle */}
+      {/* Kopf: Logo/Title + Collapse-Toggle.
+          Mehr horizontaler Abstand zwischen Wordmark + Edit-Stift + Collapse-Button,
+          damit man die Buttons nicht versehentlich aufeinander trifft (Touch + Maus). */}
       <div style={{
         display: "flex", alignItems: "center",
-        gap: 4,
+        gap: 12,
         padding: collapsed ? "2px 2px 4px" : "4px 4px 6px",
         justifyContent: collapsed ? "center" : "space-between",
+        marginBottom: 4,
       }}>
         {collapsed ? (
           <BrandMark size={32} />
         ) : (
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, paddingRight: 4 }}>
             <EditableWordmark initial={restaurantName} />
           </div>
         )}
