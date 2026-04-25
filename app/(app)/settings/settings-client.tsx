@@ -1281,6 +1281,13 @@ const smallBtn: React.CSSProperties = {
 // WhatsApp an Gäste — per-Tenant Meta Cloud API
 // ============================================================================
 
+// Internes Service-Passwort. Schützt Provider-Wahl + Credentials vor dem
+// Restaurant-Inhaber — nur CK-GrowthSystems-Mitarbeiter kennen den Code.
+// Bewusst client-side, da Schutzziel = „Versehen + Neugier verhindern",
+// nicht „echte Sicherheit" (Credentials wären ja erst nach Eingabe in
+// die DB schreibbar via /api/settings, das ist auth-gated separat).
+const WHATSAPP_ADMIN_PASSWORD = "G4b-br44c";
+
 function WhatsAppTab({
   whatsapp, setWhatsapp,
 }: {
@@ -1291,6 +1298,19 @@ function WhatsAppTab({
   const [testStatus, setTestStatus] = useState<{ kind: "idle" | "sending" | "ok" | "err"; msg?: string }>({ kind: "idle" });
   const provider = whatsapp.provider ?? "ghl";
   const [showMetaAdvanced, setShowMetaAdvanced] = useState(provider === "meta");
+  const [unlocked, setUnlocked] = useState(false);
+  const [pwInput, setPwInput] = useState("");
+  const [pwError, setPwError] = useState(false);
+
+  function tryUnlock() {
+    if (pwInput === WHATSAPP_ADMIN_PASSWORD) {
+      setUnlocked(true);
+      setPwError(false);
+      setPwInput("");
+    } else {
+      setPwError(true);
+    }
+  }
 
   // Server liefert kein access_token zurueck (redacted), sondern nur den
   // Indikator access_token_set. Das UI nutzt das um „Token gespeichert" als
@@ -1323,7 +1343,7 @@ function WhatsAppTab({
     <>
       <Header
         title="WhatsApp-Bestätigung an Gäste"
-        sub={`Bei Bestätigung/Storno einer Reservierung wird automatisch eine WhatsApp an den Gast gesendet. Empfohlener Weg: über GoHighLevel/LeadConnector (du hast es eh bereits für den Voice-Agent verbunden). Alternative: direkt via Meta Cloud API.`}
+        sub={`Bei Bestätigung/Storno einer Reservierung wird automatisch eine WhatsApp an den Gast gesendet. Empfohlener Weg: über die Demandly-Versandplattform. Alternative: direkt via Meta Cloud API.`}
       />
 
       <HiCard style={{ padding: 20, marginBottom: 16 }}>
@@ -1338,59 +1358,108 @@ function WhatsAppTab({
         </div>
       </HiCard>
 
-      {/* Provider-Switch */}
-      <HiCard style={{ padding: 20, marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 12 }}>Versand-Provider</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          {[
-            { id: "ghl", label: "GoHighLevel / LeadConnector", desc: "Empfohlen — schnelles Setup, $10/Monat pro Nummer" },
-            { id: "meta", label: "Meta Cloud API direkt", desc: "Free 1000 Conversations/Monat, mehr Setup-Aufwand" },
-          ].map((p) => {
-            const selected = provider === p.id;
-            return (
-              <button
-                key={p.id}
-                onClick={() => {
-                  setWhatsapp({ ...whatsapp, provider: p.id as "ghl" | "meta" });
-                  setShowMetaAdvanced(p.id === "meta");
-                }}
-                style={{
-                  padding: "12px 14px", borderRadius: 8,
-                  border: "1px solid",
-                  borderColor: selected ? "var(--hi-accent)" : "var(--hi-line)",
-                  background: selected ? "color-mix(in oklch, var(--hi-accent) 12%, var(--hi-surface))" : "transparent",
-                  color: "var(--hi-ink)", textAlign: "left", cursor: "pointer",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                  <div style={{
-                    width: 12, height: 12, borderRadius: 6,
-                    border: `1.5px solid ${selected ? "var(--hi-accent)" : "var(--hi-muted)"}`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                  }}>
-                    {selected && <div style={{ width: 5, height: 5, borderRadius: 3, background: "var(--hi-accent)" }} />}
-                  </div>
-                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>{p.label}</span>
-                </div>
-                <div style={{ fontSize: 11, color: "var(--hi-muted)", marginLeft: 18 }}>{p.desc}</div>
-              </button>
-            );
-          })}
-        </div>
-      </HiCard>
-
-      {/* GHL-Konfig — wenn Provider = ghl */}
-      {provider === "ghl" && (
-        <HiCard style={{ padding: 20, marginBottom: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>GoHighLevel-Webhook</div>
-          <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14, lineHeight: 1.5 }}>
-            In GHL einen Workflow mit Trigger „Inbound Webhook" anlegen, Webhook-URL kopieren und unten einfügen.
-            Der Workflow erhält ein JSON-Payload mit den Feldern <code>event</code> (confirmed/cancelled/reminder),
-            <code> to</code> (Phone E.164), <code>guest_first_name</code>, <code>date</code>, <code>time</code>,
-            <code> code</code>, <code>restaurant_name</code>. Im Workflow drei Branches je <code>event</code> bauen,
-            jeder schickt das passende WhatsApp-Template.
+      {/* Provider-Sektion — passwortgeschützt. Restaurant sieht nur, dass
+          eine Versand-Quelle konfiguriert ist; aendern darf nur CK-Service. */}
+      {!unlocked && (
+        <HiCard style={{ padding: 20, marginBottom: 16, background: "var(--hi-surface)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)" }}>
+                🔒 Versand-Konfiguration
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginTop: 2 }}>
+                Aktuell aktiv: <span style={{ color: "var(--hi-ink)", fontWeight: 500 }}>
+                  {provider === "ghl" ? "Demandly" : "Meta Cloud API direkt"}
+                </span>
+                {" · "}
+                <span style={{ color: provider === "ghl" ? (whatsapp.ghl_webhook_url ? "oklch(0.78 0.12 145)" : "oklch(0.7 0.18 25)") : ((whatsapp as any).access_token_set ? "oklch(0.78 0.12 145)" : "oklch(0.7 0.18 25)") }}>
+                  {provider === "ghl"
+                    ? (whatsapp.ghl_webhook_url ? "verbunden" : "nicht verbunden")
+                    : ((whatsapp as any).access_token_set ? "verbunden" : "nicht verbunden")}
+                </span>
+              </div>
+            </div>
           </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="password"
+              value={pwInput}
+              onChange={(e) => { setPwInput(e.target.value); setPwError(false); }}
+              onKeyDown={(e) => { if (e.key === "Enter") tryUnlock(); }}
+              placeholder="Service-Passwort"
+              className="allow-select"
+              style={{ ...textInputStyle, flex: 1 }}
+            />
+            <HiBtn kind="outline" size="md" onClick={tryUnlock}>Entsperren</HiBtn>
+          </div>
+          {pwError && (
+            <div style={{ marginTop: 8, fontSize: 11.5, color: "oklch(0.7 0.18 25)" }}>
+              ✗ Passwort falsch
+            </div>
+          )}
+        </HiCard>
+      )}
 
+      {/* Provider-Switch — nur sichtbar nach Entsperren */}
+      {unlocked && (
+        <HiCard style={{ padding: 20, marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)" }}>Versand-Provider</div>
+            <button
+              onClick={() => setUnlocked(false)}
+              style={{
+                padding: "4px 10px", borderRadius: 5, fontSize: 11, fontWeight: 500,
+                background: "transparent",
+                border: "1px solid var(--hi-line)",
+                color: "var(--hi-muted-strong)",
+                cursor: "pointer",
+              }}
+            >
+              🔒 Sperren
+            </button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            {[
+              { id: "ghl", label: "Demandly" },
+              { id: "meta", label: "Meta Cloud API direkt" },
+            ].map((p) => {
+              const selected = provider === p.id;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => {
+                    setWhatsapp({ ...whatsapp, provider: p.id as "ghl" | "meta" });
+                    setShowMetaAdvanced(p.id === "meta");
+                  }}
+                  style={{
+                    padding: "14px 16px", borderRadius: 8,
+                    border: "1px solid",
+                    borderColor: selected ? "var(--hi-accent)" : "var(--hi-line)",
+                    background: selected ? "color-mix(in oklch, var(--hi-accent) 12%, var(--hi-surface))" : "transparent",
+                    color: "var(--hi-ink)", textAlign: "left", cursor: "pointer",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{
+                      width: 12, height: 12, borderRadius: 6,
+                      border: `1.5px solid ${selected ? "var(--hi-accent)" : "var(--hi-muted)"}`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      {selected && <div style={{ width: 5, height: 5, borderRadius: 3, background: "var(--hi-accent)" }} />}
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{p.label}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </HiCard>
+      )}
+
+      {/* Demandly-Konfig — nur sichtbar nach Entsperren */}
+      {unlocked && provider === "ghl" && (
+        <HiCard style={{ padding: 20, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 14 }}>Demandly-Webhook</div>
           <Field label="Webhook-URL">
             <input
               value={whatsapp.ghl_webhook_url ?? ""}
@@ -1403,17 +1472,10 @@ function WhatsAppTab({
         </HiCard>
       )}
 
-      {/* Meta-Konfig — wenn Provider = meta */}
-      {provider === "meta" && (
+      {/* Meta-Konfig — nur sichtbar nach Entsperren */}
+      {unlocked && provider === "meta" && (
         <HiCard style={{ padding: 20, marginBottom: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Meta-Credentials</div>
-          <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14, lineHeight: 1.5 }}>
-            Aus Ihrem Meta Business Manager:
-            <br />
-            1. WhatsApp Business Account (WABA) anlegen + Telefonnummer verifizieren.<br />
-            2. Phone Number ID aus „API-Setup" kopieren.<br />
-            3. System-User-Token mit „whatsapp_business_messaging" + „whatsapp_business_management" generieren.
-          </div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 14 }}>Meta-Credentials</div>
 
           <Field label="Phone Number ID">
             <input
@@ -1498,7 +1560,7 @@ function WhatsAppTab({
         </div>
       </HiCard>
 
-      {provider === "meta" && (
+      {unlocked && provider === "meta" && (
         <HiCard style={{ padding: 20, marginBottom: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Meta Template-Namen</div>
           <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14, lineHeight: 1.5 }}>

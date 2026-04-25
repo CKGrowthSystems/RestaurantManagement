@@ -121,7 +121,7 @@ export function IntegrationWizard({ baseUrl, secret, restaurantName }: { baseUrl
     <HiCard style={{ padding: 0 }}>
       <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--hi-line)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--hi-ink)" }}>GHL-Integration · Schritt-für-Schritt</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--hi-ink)" }}>Demandly-Integration · Schritt-für-Schritt</div>
           <div style={{ fontSize: 11.5, color: "var(--hi-muted)" }}>
             Vier Webhook-Actions in deinem Workflow + ein System-Prompt für den Voice-Agent.
           </div>
@@ -211,7 +211,7 @@ export function IntegrationWizard({ baseUrl, secret, restaurantName }: { baseUrl
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: "var(--hi-ink)" }}>Voice-Agent System-Prompt</div>
             <div style={{ fontSize: 11, color: "var(--hi-muted)" }}>
-              In GHL → Voice-AI-Agent → System-Prompt einfügen. Platzhalter sind schon gefüllt.
+              In Demandly → Voice-AI-Agent → System-Prompt einfügen. Platzhalter sind schon gefüllt.
             </div>
           </div>
           <CopyButton value={promptFilled} label="Prompt kopieren" />

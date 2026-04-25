@@ -61,7 +61,7 @@ export default async function VoicePage() {
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100%" }}>
       <Topbar
         title="Voice-KI Agent"
-        subtitle={`GoHighLevel Integration · ${todays.length} Calls heute`}
+        subtitle={`Demandly Integration · ${todays.length} Calls heute`}
         right={
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <HiPill tone="success" dot>Webhook Live</HiPill>

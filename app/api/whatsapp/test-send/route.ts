@@ -64,7 +64,7 @@ export async function POST(request: Request) {
 
   if (provider === "ghl") {
     if (!wa.ghl_webhook_url) {
-      return NextResponse.json({ ok: false, error: "GHL-Webhook-URL nicht gesetzt" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Demandly-Webhook-URL nicht gesetzt" }, { status: 400 });
     }
     const startsAtDate = new Date(testRes.starts_at);
     const dateHuman = startsAtDate.toLocaleDateString("de-DE", {
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
       provider: "ghl",
       sent_to: to,
       ghl_status: result.status,
-      note: "GHL-Webhook hat 2xx geliefert. Ob die WhatsApp wirklich rausgegangen ist, siehst du in deinem GHL-Workflow-Log.",
+      note: "Webhook hat 2xx geliefert. Versand-Status siehst du im Demandly-Workflow-Log.",
     });
   }
 

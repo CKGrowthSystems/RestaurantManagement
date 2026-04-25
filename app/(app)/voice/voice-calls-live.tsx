@@ -126,7 +126,7 @@ export function VoiceCallsLiveSidebar({
         ))}
         {calls.length === 0 && (
           <div style={{ padding: 14, color: "var(--hi-muted)", fontSize: 12 }}>
-            Noch keine Anrufe. GoHighLevel kann die Endpoints oben live aufrufen.
+            Noch keine Anrufe. Demandly kann die Endpoints oben live aufrufen.
           </div>
         )}
       </div>
