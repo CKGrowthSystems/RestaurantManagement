@@ -22,8 +22,9 @@ import {
   type ReservationLite,
   type EmailTemplateContext,
 } from "@/lib/email-templates";
-import { getWhatsAppCredentials, sendWhatsAppTemplate } from "@/lib/whatsapp";
+import { getWhatsAppCredentials, sendWhatsAppTemplate, normalizePhoneE164 } from "@/lib/whatsapp";
 import { confirmationParams, cancellationParams } from "@/lib/whatsapp-templates";
+import { sendGhlWebhook, parseFirstName, type GhlWebhookPayload } from "@/lib/ghl-webhook";
 
 export type NotificationKind = "confirmed" | "approval_required" | "cancelled";
 
@@ -212,6 +213,34 @@ async function maybeSendGuestWhatsApp(input: {
   // Default true (Spalte default in DB). Nur false → kein Versand.
   if (reservation.whatsapp_consent === false) return;
 
+  // Settings einmal laden — daraus entscheiden wir welcher Provider
+  // genutzt wird (GHL primaer, Meta-direct als Fallback).
+  const admin = createAdminClient();
+  const { data: settings } = await admin.from("settings")
+    .select("whatsapp")
+    .eq("restaurant_id", restaurantId)
+    .maybeSingle();
+  const wa = (settings as any)?.whatsapp ?? null;
+  if (!wa || !wa.enabled) return;
+
+  // Provider-Switch: GHL wenn Webhook-URL gesetzt UND provider !== "meta",
+  // sonst Meta-direct.
+  const provider = (wa.provider as string | undefined) ?? (wa.ghl_webhook_url ? "ghl" : "meta");
+
+  if (provider === "ghl") {
+    if (!wa.ghl_webhook_url) return;
+    if (kind === "confirmed" && wa.send_on_confirmed === false) return;
+    if (kind === "cancelled" && wa.send_on_cancelled === false) return;
+    await sendViaGhl({
+      webhookUrl: wa.ghl_webhook_url,
+      kind,
+      reservation,
+      restaurantName,
+    });
+    return;
+  }
+
+  // Meta-direct
   const creds = await getWhatsAppCredentials(restaurantId);
   if (!creds) return;
   if (kind === "confirmed" && !creds.send_on_confirmed) return;
@@ -240,5 +269,52 @@ async function maybeSendGuestWhatsApp(input: {
 
   if (!result.ok && !result.skipped) {
     console.warn(`[notifications] WhatsApp ${kind} failed:`, result.error);
+  }
+}
+
+/**
+ * Versendet eine Notification ueber den GHL-Webhook. Der GHL-Workflow
+ * laedt das Payload und versendet je nach `event` die richtige WhatsApp-
+ * Template via GHL's WhatsApp-Integration.
+ */
+async function sendViaGhl(input: {
+  webhookUrl: string;
+  kind: "confirmed" | "cancelled";
+  reservation: ResRow;
+  restaurantName: string;
+}): Promise<void> {
+  const { webhookUrl, kind, reservation, restaurantName } = input;
+  const to = normalizePhoneE164(reservation.phone);
+  if (!to) return;
+
+  const startsAtDate = new Date(reservation.starts_at);
+  const dateHuman = startsAtDate.toLocaleDateString("de-DE", {
+    weekday: "long", day: "numeric", month: "long",
+    timeZone: "Europe/Berlin",
+  });
+  const timeHuman = startsAtDate.toLocaleTimeString("de-DE", {
+    hour: "2-digit", minute: "2-digit",
+    timeZone: "Europe/Berlin",
+  });
+
+  const payload: GhlWebhookPayload = {
+    event: kind,
+    channel: "whatsapp",
+    to,
+    guest_name: reservation.guest_name,
+    guest_first_name: parseFirstName(reservation.guest_name),
+    party_size: reservation.party_size,
+    starts_at: reservation.starts_at,
+    date: dateHuman,
+    time: timeHuman,
+    starts_at_human: `${dateHuman}, ${timeHuman} Uhr`,
+    code: reservation.code,
+    restaurant_name: restaurantName,
+    reservation_id: reservation.id,
+  };
+
+  const result = await sendGhlWebhook(webhookUrl, payload);
+  if (!result.ok) {
+    console.warn(`[notifications] GHL webhook ${kind} failed:`, result.error);
   }
 }

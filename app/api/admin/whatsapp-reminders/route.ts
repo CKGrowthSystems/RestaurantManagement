@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
-import { getWhatsAppCredentials, sendWhatsAppTemplate } from "@/lib/whatsapp";
+import { getWhatsAppCredentials, sendWhatsAppTemplate, normalizePhoneE164 } from "@/lib/whatsapp";
 import { reminderParams } from "@/lib/whatsapp-templates";
+import { sendGhlWebhook, parseFirstName, type GhlWebhookPayload } from "@/lib/ghl-webhook";
 
 /**
  * GET /api/admin/whatsapp-reminders
@@ -51,11 +52,12 @@ export async function GET(request: Request) {
   };
   const targets = ((settingsList ?? []) as WaCfgRow[]).filter((s) => {
     const cfg = s.whatsapp;
-    return cfg?.enabled
-      && cfg?.phone_number_id
-      && cfg?.access_token
-      && typeof cfg?.send_reminder_hours_before === "number"
-      && cfg.send_reminder_hours_before > 0;
+    if (!cfg?.enabled) return false;
+    if (typeof cfg?.send_reminder_hours_before !== "number" || cfg.send_reminder_hours_before <= 0) return false;
+    // Provider-Switch: GHL = nur webhook_url ist Pflicht; Meta = phone+token
+    const provider = cfg.provider ?? (cfg.ghl_webhook_url ? "ghl" : "meta");
+    if (provider === "ghl") return !!cfg.ghl_webhook_url;
+    return !!(cfg.phone_number_id && cfg.access_token);
   });
 
   if (targets.length === 0) {
@@ -100,11 +102,15 @@ export async function GET(request: Request) {
       continue;
     }
 
-    const creds = await getWhatsAppCredentials(t.restaurant_id);
-    if (!creds) {
+    const provider: "ghl" | "meta" = t.whatsapp.provider ?? (t.whatsapp.ghl_webhook_url ? "ghl" : "meta");
+    const ghlUrl = t.whatsapp.ghl_webhook_url as string | undefined;
+
+    // Meta-Credentials nur laden wenn wir sie wirklich brauchen
+    const creds = provider === "meta" ? await getWhatsAppCredentials(t.restaurant_id) : null;
+    if (provider === "meta" && !creds) {
       results.push({
         restaurant_id: t.restaurant_id, sent: 0, failed: list.length,
-        errors: ["Credentials nicht ladbar"],
+        errors: ["Meta-Credentials nicht ladbar"],
       });
       continue;
     }
@@ -113,15 +119,50 @@ export async function GET(request: Request) {
     const errors: string[] = [];
 
     for (const r of list) {
-      const params = reminderParams(
-        { guest_name: r.guest_name, party_size: r.party_size, starts_at: r.starts_at, code: r.code },
-        { name: restaurantName },
-      );
-      const result = await sendWhatsAppTemplate(creds, {
-        to: r.phone,
-        template: creds.templates.reminder,
-        parameters: params,
-      });
+      let result: { ok: boolean; error?: string; reason?: string; skipped?: boolean };
+
+      if (provider === "ghl" && ghlUrl) {
+        const to = normalizePhoneE164(r.phone);
+        if (!to) {
+          result = { ok: false, error: "Invalid phone", skipped: true };
+        } else {
+          const startsAtDate = new Date(r.starts_at);
+          const dateHuman = startsAtDate.toLocaleDateString("de-DE", {
+            weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Berlin",
+          });
+          const timeHuman = startsAtDate.toLocaleTimeString("de-DE", {
+            hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin",
+          });
+          const payload: GhlWebhookPayload = {
+            event: "reminder",
+            channel: "whatsapp",
+            to,
+            guest_name: r.guest_name,
+            guest_first_name: parseFirstName(r.guest_name),
+            party_size: r.party_size,
+            starts_at: r.starts_at,
+            date: dateHuman,
+            time: timeHuman,
+            starts_at_human: `${dateHuman}, ${timeHuman} Uhr`,
+            code: r.code,
+            restaurant_name: restaurantName,
+            reservation_id: r.id,
+          };
+          result = await sendGhlWebhook(ghlUrl, payload);
+        }
+      } else if (creds) {
+        const params = reminderParams(
+          { guest_name: r.guest_name, party_size: r.party_size, starts_at: r.starts_at, code: r.code },
+          { name: restaurantName },
+        );
+        result = await sendWhatsAppTemplate(creds, {
+          to: r.phone,
+          template: creds.templates.reminder,
+          parameters: params,
+        });
+      } else {
+        result = { ok: false, error: "No provider configured" };
+      }
 
       if (result.ok) {
         sent++;

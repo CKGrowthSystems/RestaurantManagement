@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/tenant";
 import { getWhatsAppCredentials, sendWhatsAppTemplate, normalizePhoneE164 } from "@/lib/whatsapp";
 import { confirmationParams } from "@/lib/whatsapp-templates";
+import { sendGhlWebhook, parseFirstName, type GhlWebhookPayload } from "@/lib/ghl-webhook";
 
 /**
  * POST /api/whatsapp/test-send
@@ -30,19 +31,20 @@ export async function POST(request: Request) {
     }, { status: 400 });
   }
 
-  const creds = await getWhatsAppCredentials(ctx.restaurantId);
-  if (!creds) {
+  // Settings laden um den Provider zu ermitteln
+  const { data: settingsRow } = await ctx.supabase
+    .from("settings").select("branding, whatsapp").eq("restaurant_id", ctx.restaurantId).maybeSingle();
+  const wa = (settingsRow as any)?.whatsapp as any;
+  if (!wa || !wa.enabled) {
     return NextResponse.json({
       ok: false,
-      error: "WhatsApp ist nicht konfiguriert oder deaktiviert. Bitte erst Settings ausfuellen.",
+      error: "WhatsApp ist deaktiviert. Bitte erst aktivieren und Provider konfigurieren.",
     }, { status: 400 });
   }
 
-  // Restaurant-Name fuer das Template
+  // Restaurant-Name fuer das Template / Payload
   const { data: restaurantRow } = await ctx.supabase
     .from("restaurants").select("name").eq("id", ctx.restaurantId).maybeSingle();
-  const { data: settingsRow } = await ctx.supabase
-    .from("settings").select("branding").eq("restaurant_id", ctx.restaurantId).maybeSingle();
   const restaurantName =
     (settingsRow?.branding as any)?.public_name?.trim() ||
     (restaurantRow as any)?.name ||
@@ -58,6 +60,56 @@ export async function POST(request: Request) {
     code: "00000",
   };
 
+  const provider: "ghl" | "meta" = wa.provider ?? (wa.ghl_webhook_url ? "ghl" : "meta");
+
+  if (provider === "ghl") {
+    if (!wa.ghl_webhook_url) {
+      return NextResponse.json({ ok: false, error: "GHL-Webhook-URL nicht gesetzt" }, { status: 400 });
+    }
+    const startsAtDate = new Date(testRes.starts_at);
+    const dateHuman = startsAtDate.toLocaleDateString("de-DE", {
+      weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Berlin",
+    });
+    const timeHuman = startsAtDate.toLocaleTimeString("de-DE", {
+      hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin",
+    });
+    const payload: GhlWebhookPayload = {
+      event: "confirmed",
+      channel: "whatsapp",
+      to,
+      guest_name: testRes.guest_name,
+      guest_first_name: parseFirstName(testRes.guest_name),
+      party_size: testRes.party_size,
+      starts_at: testRes.starts_at,
+      date: dateHuman,
+      time: timeHuman,
+      starts_at_human: `${dateHuman}, ${timeHuman} Uhr`,
+      code: testRes.code,
+      restaurant_name: restaurantName,
+      reservation_id: "test-" + Math.random().toString(36).slice(2, 9),
+    };
+    const result = await sendGhlWebhook(wa.ghl_webhook_url, payload);
+    if (!result.ok) {
+      return NextResponse.json({ ok: false, provider: "ghl", error: result.error }, { status: 400 });
+    }
+    return NextResponse.json({
+      ok: true,
+      provider: "ghl",
+      sent_to: to,
+      ghl_status: result.status,
+      note: "GHL-Webhook hat 2xx geliefert. Ob die WhatsApp wirklich rausgegangen ist, siehst du in deinem GHL-Workflow-Log.",
+    });
+  }
+
+  // Meta-direct
+  const creds = await getWhatsAppCredentials(ctx.restaurantId);
+  if (!creds) {
+    return NextResponse.json({
+      ok: false,
+      error: "Meta-Credentials fehlen. Bitte Phone-ID + Token ausfuellen.",
+    }, { status: 400 });
+  }
+
   const result = await sendWhatsAppTemplate(creds, {
     to,
     template: creds.templates.confirmation,
@@ -67,12 +119,14 @@ export async function POST(request: Request) {
   if (!result.ok) {
     return NextResponse.json({
       ok: false,
+      provider: "meta",
       error: result.error ?? result.reason ?? "unknown",
     }, { status: 400 });
   }
 
   return NextResponse.json({
     ok: true,
+    provider: "meta",
     message_id: result.message_id,
     sent_to: to,
     template_used: creds.templates.confirmation,

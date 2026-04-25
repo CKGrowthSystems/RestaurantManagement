@@ -11,3 +11,4 @@ data/runtime.json
 .env.*.local
 .env.production
 tsconfig.tsbuildinfo
+.vercel

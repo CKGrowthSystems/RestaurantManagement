@@ -22,6 +22,9 @@ const DEFAULT_NOTIFY: Notify = {
 
 const DEFAULT_WHATSAPP: WhatsAppSettings = {
   enabled: false,
+  // GHL ist der empfohlene Default — kein Meta-Manager-Setup pro Tenant noetig.
+  provider: "ghl",
+  ghl_webhook_url: null,
   phone_number_id: null,
   access_token: null,
   business_account_id: null,
@@ -1286,6 +1289,8 @@ function WhatsAppTab({
 }) {
   const [testPhone, setTestPhone] = useState("");
   const [testStatus, setTestStatus] = useState<{ kind: "idle" | "sending" | "ok" | "err"; msg?: string }>({ kind: "idle" });
+  const provider = whatsapp.provider ?? "ghl";
+  const [showMetaAdvanced, setShowMetaAdvanced] = useState(provider === "meta");
 
   // Server liefert kein access_token zurueck (redacted), sondern nur den
   // Indikator access_token_set. Das UI nutzt das um „Token gespeichert" als
@@ -1296,8 +1301,6 @@ function WhatsAppTab({
     if (!testPhone.trim()) return;
     setTestStatus({ kind: "sending" });
     try {
-      // Wir muessen ggf. erst speichern, falls der User die Settings noch
-      // nicht persistiert hat — wenn aber schon konfiguriert: direkt senden.
       const res = await fetch("/api/whatsapp/test-send", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1305,7 +1308,9 @@ function WhatsAppTab({
       });
       const json = await res.json();
       if (json.ok) {
-        setTestStatus({ kind: "ok", msg: `Gesendet (Message-ID: ${json.message_id ?? "—"})` });
+        const note = json.note ? ` — ${json.note}` : "";
+        const id = json.message_id ?? json.ghl_status ?? "OK";
+        setTestStatus({ kind: "ok", msg: `Gesendet via ${json.provider ?? "?"} (${id})${note}` });
       } else {
         setTestStatus({ kind: "err", msg: json.error ?? "Unbekannter Fehler" });
       }
@@ -1318,7 +1323,7 @@ function WhatsAppTab({
     <>
       <Header
         title="WhatsApp-Bestätigung an Gäste"
-        sub={`Bestätigt einer Reservierung wird automatisch per WhatsApp an den Gast gesendet — von Ihrer eigenen WhatsApp-Business-Nummer. Der Gast sieht den Restaurant-Namen als Absender, nicht "HostSystem". Free Tier von Meta: 1000 Conversations/Monat.`}
+        sub={`Bei Bestätigung/Storno einer Reservierung wird automatisch eine WhatsApp an den Gast gesendet. Empfohlener Weg: über GoHighLevel/LeadConnector (du hast es eh bereits für den Voice-Agent verbunden). Alternative: direkt via Meta Cloud API.`}
       />
 
       <HiCard style={{ padding: 20, marginBottom: 16 }}>
@@ -1326,59 +1331,127 @@ function WhatsAppTab({
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)" }}>WhatsApp-Versand aktivieren</div>
             <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginTop: 2 }}>
-              Schaltet die Tenant-eigenen Credentials scharf
+              Schaltet die unten konfigurierten Credentials scharf
             </div>
           </div>
           <Toggle on={whatsapp.enabled} onChange={(v) => setWhatsapp({ ...whatsapp, enabled: v })} />
         </div>
       </HiCard>
 
+      {/* Provider-Switch */}
       <HiCard style={{ padding: 20, marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Meta-Credentials</div>
-        <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14, lineHeight: 1.5 }}>
-          Aus Ihrem Meta Business Manager:
-          <br />
-          1. WhatsApp Business Account (WABA) anlegen + Telefonnummer verifizieren.<br />
-          2. Phone Number ID aus „API-Setup" kopieren.<br />
-          3. System-User-Token mit „whatsapp_business_messaging" + „whatsapp_business_management" generieren.
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 12 }}>Versand-Provider</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          {[
+            { id: "ghl", label: "GoHighLevel / LeadConnector", desc: "Empfohlen — schnelles Setup, $10/Monat pro Nummer" },
+            { id: "meta", label: "Meta Cloud API direkt", desc: "Free 1000 Conversations/Monat, mehr Setup-Aufwand" },
+          ].map((p) => {
+            const selected = provider === p.id;
+            return (
+              <button
+                key={p.id}
+                onClick={() => {
+                  setWhatsapp({ ...whatsapp, provider: p.id as "ghl" | "meta" });
+                  setShowMetaAdvanced(p.id === "meta");
+                }}
+                style={{
+                  padding: "12px 14px", borderRadius: 8,
+                  border: "1px solid",
+                  borderColor: selected ? "var(--hi-accent)" : "var(--hi-line)",
+                  background: selected ? "color-mix(in oklch, var(--hi-accent) 12%, var(--hi-surface))" : "transparent",
+                  color: "var(--hi-ink)", textAlign: "left", cursor: "pointer",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <div style={{
+                    width: 12, height: 12, borderRadius: 6,
+                    border: `1.5px solid ${selected ? "var(--hi-accent)" : "var(--hi-muted)"}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    {selected && <div style={{ width: 5, height: 5, borderRadius: 3, background: "var(--hi-accent)" }} />}
+                  </div>
+                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>{p.label}</span>
+                </div>
+                <div style={{ fontSize: 11, color: "var(--hi-muted)", marginLeft: 18 }}>{p.desc}</div>
+              </button>
+            );
+          })}
         </div>
-
-        <Field label="Phone Number ID">
-          <input
-            value={whatsapp.phone_number_id ?? ""}
-            onChange={(e) => setWhatsapp({ ...whatsapp, phone_number_id: e.target.value })}
-            placeholder="z.B. 123456789012345"
-            className="allow-select"
-            style={textInputStyle}
-          />
-        </Field>
-
-        <Field label="Access Token">
-          <input
-            type="password"
-            value={whatsapp.access_token ?? ""}
-            onChange={(e) => setWhatsapp({ ...whatsapp, access_token: e.target.value })}
-            placeholder={tokenAlreadySet ? "•••••••• (gespeichert — leer lassen um zu behalten)" : "EAAxxxxxx..."}
-            className="allow-select"
-            style={textInputStyle}
-          />
-          {tokenAlreadySet && (
-            <div style={{ fontSize: 10.5, color: "oklch(0.78 0.12 145)", marginTop: 4 }}>
-              ✓ Token ist bereits gespeichert
-            </div>
-          )}
-        </Field>
-
-        <Field label="Business Account ID (optional)">
-          <input
-            value={whatsapp.business_account_id ?? ""}
-            onChange={(e) => setWhatsapp({ ...whatsapp, business_account_id: e.target.value })}
-            placeholder="WABA-ID — nur fuers Audit"
-            className="allow-select"
-            style={textInputStyle}
-          />
-        </Field>
       </HiCard>
+
+      {/* GHL-Konfig — wenn Provider = ghl */}
+      {provider === "ghl" && (
+        <HiCard style={{ padding: 20, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>GoHighLevel-Webhook</div>
+          <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14, lineHeight: 1.5 }}>
+            In GHL einen Workflow mit Trigger „Inbound Webhook" anlegen, Webhook-URL kopieren und unten einfügen.
+            Der Workflow erhält ein JSON-Payload mit den Feldern <code>event</code> (confirmed/cancelled/reminder),
+            <code> to</code> (Phone E.164), <code>guest_first_name</code>, <code>date</code>, <code>time</code>,
+            <code> code</code>, <code>restaurant_name</code>. Im Workflow drei Branches je <code>event</code> bauen,
+            jeder schickt das passende WhatsApp-Template.
+          </div>
+
+          <Field label="Webhook-URL">
+            <input
+              value={whatsapp.ghl_webhook_url ?? ""}
+              onChange={(e) => setWhatsapp({ ...whatsapp, ghl_webhook_url: e.target.value })}
+              placeholder="https://services.leadconnectorhq.com/hooks/..."
+              className="allow-select"
+              style={textInputStyle}
+            />
+          </Field>
+        </HiCard>
+      )}
+
+      {/* Meta-Konfig — wenn Provider = meta */}
+      {provider === "meta" && (
+        <HiCard style={{ padding: 20, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Meta-Credentials</div>
+          <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14, lineHeight: 1.5 }}>
+            Aus Ihrem Meta Business Manager:
+            <br />
+            1. WhatsApp Business Account (WABA) anlegen + Telefonnummer verifizieren.<br />
+            2. Phone Number ID aus „API-Setup" kopieren.<br />
+            3. System-User-Token mit „whatsapp_business_messaging" + „whatsapp_business_management" generieren.
+          </div>
+
+          <Field label="Phone Number ID">
+            <input
+              value={whatsapp.phone_number_id ?? ""}
+              onChange={(e) => setWhatsapp({ ...whatsapp, phone_number_id: e.target.value })}
+              placeholder="z.B. 123456789012345"
+              className="allow-select"
+              style={textInputStyle}
+            />
+          </Field>
+
+          <Field label="Access Token">
+            <input
+              type="password"
+              value={whatsapp.access_token ?? ""}
+              onChange={(e) => setWhatsapp({ ...whatsapp, access_token: e.target.value })}
+              placeholder={tokenAlreadySet ? "•••••••• (gespeichert — leer lassen um zu behalten)" : "EAAxxxxxx..."}
+              className="allow-select"
+              style={textInputStyle}
+            />
+            {tokenAlreadySet && (
+              <div style={{ fontSize: 10.5, color: "oklch(0.78 0.12 145)", marginTop: 4 }}>
+                ✓ Token ist bereits gespeichert
+              </div>
+            )}
+          </Field>
+
+          <Field label="Business Account ID (optional)">
+            <input
+              value={whatsapp.business_account_id ?? ""}
+              onChange={(e) => setWhatsapp({ ...whatsapp, business_account_id: e.target.value })}
+              placeholder="WABA-ID — nur fuers Audit"
+              className="allow-select"
+              style={textInputStyle}
+            />
+          </Field>
+        </HiCard>
+      )}
 
       <HiCard style={{ padding: 20, marginBottom: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 12 }}>
@@ -1425,37 +1498,39 @@ function WhatsAppTab({
         </div>
       </HiCard>
 
-      <HiCard style={{ padding: 20, marginBottom: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Template-Namen</div>
-        <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14, lineHeight: 1.5 }}>
-          Diese Templates müssen in Meta Business Manager angelegt + freigegeben sein.
-          Reihenfolge der Variablen: siehe Doku im Setup-Wizard.
-        </div>
-        <Field label="Bestätigung">
-          <input
-            value={whatsapp.templates.confirmation}
-            onChange={(e) => setWhatsapp({ ...whatsapp, templates: { ...whatsapp.templates, confirmation: e.target.value } })}
-            className="allow-select"
-            style={textInputStyle}
-          />
-        </Field>
-        <Field label="Stornierung">
-          <input
-            value={whatsapp.templates.cancellation}
-            onChange={(e) => setWhatsapp({ ...whatsapp, templates: { ...whatsapp.templates, cancellation: e.target.value } })}
-            className="allow-select"
-            style={textInputStyle}
-          />
-        </Field>
-        <Field label="Erinnerung">
-          <input
-            value={whatsapp.templates.reminder}
-            onChange={(e) => setWhatsapp({ ...whatsapp, templates: { ...whatsapp.templates, reminder: e.target.value } })}
-            className="allow-select"
-            style={textInputStyle}
-          />
-        </Field>
-      </HiCard>
+      {provider === "meta" && (
+        <HiCard style={{ padding: 20, marginBottom: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Meta Template-Namen</div>
+          <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14, lineHeight: 1.5 }}>
+            Diese Templates müssen in Meta Business Manager angelegt + freigegeben sein.
+            Reihenfolge der Variablen: siehe Doku im Setup-Wizard.
+          </div>
+          <Field label="Bestätigung">
+            <input
+              value={whatsapp.templates.confirmation}
+              onChange={(e) => setWhatsapp({ ...whatsapp, templates: { ...whatsapp.templates, confirmation: e.target.value } })}
+              className="allow-select"
+              style={textInputStyle}
+            />
+          </Field>
+          <Field label="Stornierung">
+            <input
+              value={whatsapp.templates.cancellation}
+              onChange={(e) => setWhatsapp({ ...whatsapp, templates: { ...whatsapp.templates, cancellation: e.target.value } })}
+              className="allow-select"
+              style={textInputStyle}
+            />
+          </Field>
+          <Field label="Erinnerung">
+            <input
+              value={whatsapp.templates.reminder}
+              onChange={(e) => setWhatsapp({ ...whatsapp, templates: { ...whatsapp.templates, reminder: e.target.value } })}
+              className="allow-select"
+              style={textInputStyle}
+            />
+          </Field>
+        </HiCard>
+      )}
 
       <HiCard style={{ padding: 20 }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Test-Versand</div>

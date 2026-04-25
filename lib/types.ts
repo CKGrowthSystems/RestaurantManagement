@@ -212,6 +212,16 @@ export interface Settings {
 
 export interface WhatsAppSettings {
   enabled: boolean;
+  /**
+   * Provider-Auswahl. Default „ghl" — der Hauptweg fuer SaaS-Skalierung
+   * (Restaurant macht nur GHL-Workflow-Setup, kein Meta-Manager-Pain).
+   * „meta" = direct an die Meta Cloud API (kostenlos, mehr Onboarding-
+   * Aufwand pro Tenant).
+   */
+  provider?: "ghl" | "meta";
+  /** GHL/LeadConnector Inbound-Webhook-URL (wenn provider = ghl) */
+  ghl_webhook_url?: string | null;
+  // Felder unten greifen nur wenn provider = "meta"
   phone_number_id: string | null;
   access_token: string | null;             // im UI nur als Indikator (set/unset)
   business_account_id?: string | null;
