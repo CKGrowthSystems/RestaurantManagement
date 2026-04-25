@@ -18,6 +18,7 @@ import { authenticateWebhook } from "@/lib/voice-auth";
 import { logVoiceEventAsync } from "@/lib/voice-events";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import { captureError } from "@/lib/sentry";
+import { notifyAsync } from "@/lib/notifications";
 import { rankCandidates, autoAssign } from "@/lib/assignment";
 import { parseStartsAt, currentDateTimeInfo } from "@/lib/date-parsing";
 import { phonesMatch } from "@/lib/phone";
@@ -112,6 +113,24 @@ const TOOLS = [
         phone: { type: "string", description: "Telefonnummer — Format egal (mit/ohne +49, mit/ohne Leerzeichen)." },
         starts_at: { type: "string", description: "Datum + Uhrzeit als ISO-8601 mit Zeitzone (z. B. 2026-04-25T21:00:00+02:00) oder natürliche Angabe ('heute 21 Uhr', 'morgen 19:30')." },
       },
+    },
+  },
+  {
+    name: "reschedule_reservation",
+    description:
+      "Verschiebt eine bestehende Reservierung auf einen neuen Zeitpunkt. NIEMALS dafuer cancel_reservation + create_reservation kombinieren — das verliert die Buchungsnummer und macht das Problem doppelt. Stattdessen IMMER dieses Tool nutzen. ABLAUF: Frag zuerst nach der 5-stelligen BUCHUNGSNUMMER. Falls der Gast sie nicht hat, frag nach NAMEN + TELEFONNUMMER + altem Termin. Dann nach dem GEWUENSCHTEN NEUEN ZEITPUNKT. Tool prueft Oeffnungszeiten, Schliesstage und Tisch-Verfuegbarkeit selbst — und gibt instruction zurueck (FERTIG / ABSAGEN / NACHFRAGEN).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        code: { type: "string", description: "5-stellige Buchungsnummer (bevorzugt — eindeutigster Weg zur Reservierung)." },
+        reservation_id: { type: "string", description: "Direkte UUID, falls bekannt." },
+        guest_name: { type: "string", description: "Name des Gastes (Fuzzy-Match)." },
+        phone: { type: "string", description: "Telefonnummer (Format egal)." },
+        old_starts_at: { type: "string", description: "Alter Termin als ISO oder natuerliche Angabe — fuers Auffinden bei Phone+Name-Pfad." },
+        new_starts_at: { type: "string", description: "PFLICHT. Neuer Termin als ISO-8601 mit Zeitzone (z. B. 2026-04-26T20:00:00+02:00) oder natuerliche Angabe ('morgen 20 Uhr')." },
+        new_party_size: { type: "integer", description: "Optional. Falls der Gast gleichzeitig die Personenzahl aendern will." },
+      },
+      required: ["new_starts_at"],
     },
   },
 ];
@@ -417,6 +436,13 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
       return textContent({ instruction: `ABSAGEN: Reservierung konnte nicht gespeichert werden. Gast soll unter 07803 926970 anrufen.` });
     }
 
+    // Email-Notify: bei Bestaetigt → "confirmed", bei Angefragt → "approval_required"
+    notifyAsync({
+      restaurantId,
+      reservationId: reservation.id,
+      kind: decision.status === "Angefragt" ? "approval_required" : "confirmed",
+    });
+
     const assignedTable = decision.tableId ? ((tables ?? []) as TableRow[]).find((t) => t.id === decision.tableId) : null;
     const zoneName = assignedTable?.zone_id ? (zones ?? []).find((z) => z.id === assignedTable.zone_id)?.name ?? null : null;
 
@@ -631,6 +657,7 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
             });
             return textContent({ instruction: `ABSAGEN: Storno fehlgeschlagen (${updErr.message}).` });
           }
+          notifyAsync({ restaurantId, reservationId: target.id, kind: "cancelled" });
           const t = new Date(target.starts_at).toLocaleString("de-DE", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
           return textContent({
             cancelled: 1,
@@ -657,6 +684,7 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
         .eq("restaurant_id", restaurantId)
         .select("id, guest_name").single();
       if (error || !data) return textContent({ instruction: "NACHFRAGEN: Diese Reservierungs-ID konnte ich nicht finden." });
+      notifyAsync({ restaurantId, reservationId: data.id, kind: "cancelled" });
       return textContent({
         cancelled: 1,
         instruction: `FERTIG: Reservierung von ${data.guest_name} storniert. Sage dem Gast: "Hab ich für Sie storniert, kein Problem."`,
@@ -752,6 +780,7 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
     if (updErr) {
       return textContent({ instruction: `ABSAGEN: Storno fehlgeschlagen (${updErr.message}). Bitte nochmal versuchen.` });
     }
+    notifyAsync({ restaurantId, reservationId: target.id, kind: "cancelled" });
 
     const matchKind = matches[0].score === 2 ? "Name + Telefon" : matches[0].nameHit ? "Name" : "Telefon";
     return textContent({
@@ -764,6 +793,221 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
       },
       match_kind: matchKind,
       instruction: `FERTIG: Reservierung von ${target.guest_name} (${target.party_size} Personen, ${parsed.berlinLocal}) storniert. Sage dem Gast wörtlich: "Hab ich für Sie storniert, kein Problem. Schönen Tag noch."`,
+    });
+  }
+
+  // ==================================================================
+  // 6) reschedule_reservation
+  // Verschieben einer Reservierung — alte ID bleibt, nur starts_at und
+  // optional party_size aendern sich. Tisch-Reassignment via autoAssign
+  // wenn der bisherige Tisch zur neuen Zeit nicht mehr passt/frei ist.
+  // ==================================================================
+  if (name === "reschedule_reservation") {
+    const newStartsRaw = args.new_starts_at as string | undefined;
+    if (!newStartsRaw) {
+      return textContent({
+        instruction: "NACHFRAGEN: Wann genau soll die Reservierung verschoben werden? Frage den Gast nach dem neuen Tag und der Uhrzeit.",
+      });
+    }
+    const parsedNew = parseStartsAt(newStartsRaw);
+    if (!parsedNew.ok || !parsedNew.iso) {
+      return textContent({
+        instruction: `NACHFRAGEN: Neuer Termin unklar (${parsedNew.error ?? "unbekannt"}). Frag nochmal nach dem genauen Tag und Uhrzeit.`,
+      });
+    }
+    const newStartsAt = new Date(parsedNew.iso);
+    const newDateISO = dateToBerlinISO(newStartsAt);
+
+    // 1) Reservierung finden — Code, ID oder Name+Phone+old_starts_at
+    type ResRow = {
+      id: string; restaurant_id: string; table_id: string | null;
+      guest_name: string; phone: string | null;
+      party_size: number; starts_at: string; duration_min: number;
+      status: string; code: string | null;
+    };
+    let target: ResRow | null = null;
+
+    if (args.code) {
+      const cleanCode = String(args.code).replace(/\D/g, "");
+      if (cleanCode.length >= 4 && cleanCode.length <= 6) {
+        const { data: hits } = await admin.from("reservations")
+          .select("*")
+          .eq("restaurant_id", restaurantId)
+          .eq("code", cleanCode)
+          .not("status", "eq", "Storniert");
+        target = ((hits ?? [])[0] as ResRow | undefined) ?? null;
+      }
+    }
+
+    if (!target && args.reservation_id) {
+      const { data } = await admin.from("reservations")
+        .select("*")
+        .eq("id", args.reservation_id as string)
+        .eq("restaurant_id", restaurantId)
+        .maybeSingle();
+      target = (data as ResRow | null) ?? null;
+    }
+
+    if (!target && (args.guest_name || args.phone) && args.old_starts_at) {
+      const parsedOld = parseStartsAt(args.old_starts_at as string);
+      if (parsedOld.ok && parsedOld.iso) {
+        const startWindow = new Date(parsedOld.iso);
+        const { data: candidates } = await admin.from("reservations")
+          .select("*")
+          .eq("restaurant_id", restaurantId)
+          .gte("starts_at", new Date(startWindow.getTime() - 60 * 60_000).toISOString())
+          .lte("starts_at", new Date(startWindow.getTime() + 60 * 60_000).toISOString())
+          .not("status", "eq", "Storniert")
+          .order("starts_at");
+        const searchName = (args.guest_name as string | undefined)?.trim().toLowerCase() ?? "";
+        const searchPhone = (args.phone as string | undefined) ?? "";
+        const matches = ((candidates ?? []) as ResRow[]).map((c) => {
+          const nameHit = !!searchName && c.guest_name?.toLowerCase().includes(searchName);
+          const phoneHit = !!searchPhone && phonesMatch(c.phone, searchPhone);
+          return { c, score: (nameHit ? 1 : 0) + (phoneHit ? 1 : 0) };
+        }).filter((s) => s.score > 0).sort((a, b) => b.score - a.score);
+        if (matches.length === 1) {
+          target = matches[0].c;
+        } else if (matches.length > 1) {
+          const list = matches.slice(0, 3).map((s) =>
+            `${s.c.guest_name} (${s.c.party_size} Personen, ${new Date(s.c.starts_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" })})`
+          ).join(" oder ");
+          return textContent({
+            instruction: `NACHFRAGEN: Mehrere passende Reservierungen gefunden: ${list}. Bitte den Gast nach Personenzahl oder Buchungsnummer fragen.`,
+          });
+        }
+      }
+    }
+
+    if (!target) {
+      return textContent({
+        instruction: "NACHFRAGEN: Ich finde die Reservierung nicht. Frage den Gast nach der 5-stelligen Buchungsnummer ODER Name + Telefon + altem Termin.",
+      });
+    }
+
+    const newPartySize = Number(args.new_party_size ?? target.party_size);
+    if (!Number.isFinite(newPartySize) || newPartySize <= 0) {
+      return textContent({
+        instruction: "NACHFRAGEN: Personenzahl ist ungueltig — frag den Gast nochmal nach der Anzahl der Personen.",
+      });
+    }
+
+    // 2) Settings + Calendar fuer den NEUEN Termin pruefen
+    const { data: settings } = await admin.from("settings")
+      .select("opening_hours, calendar")
+      .eq("restaurant_id", restaurantId).maybeSingle();
+    const opening = (settings as any)?.opening_hours ?? null;
+    const calendar = ((settings as any)?.calendar ?? {}) as CalendarData;
+
+    const closure = isClosureForDate(calendar, newDateISO);
+    if (closure && closure.blocks_booking !== false) {
+      return textContent({
+        available: false,
+        instruction: `ABSAGEN: Am ${parsedNew.berlinLocal} haben wir geschlossen (${closure.reason}). Schlage einen Termin nach dem ${closure.to} vor.`,
+      });
+    }
+
+    const special = getSpecialHoursForDate(calendar, newDateISO);
+    if (special && special.slots.length > 0) {
+      const fmt = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit", hour12: false,
+      }).formatToParts(newStartsAt);
+      const hh = Number(fmt.find((p) => p.type === "hour")?.value ?? "0");
+      const mm = Number(fmt.find((p) => p.type === "minute")?.value ?? "0");
+      if (!isOpenAt(special.slots, hh, mm)) {
+        return textContent({
+          available: false,
+          instruction: `ABSAGEN: Am ${parsedNew.berlinLocal} gelten Sonderoeffnungszeiten: ${formatSlotsHuman(special.slots)}. Schlage einen passenden Slot vor.`,
+        });
+      }
+    } else {
+      const openingCheck = isWithinOpeningHours(newStartsAt, opening);
+      if (openingCheck && !openingCheck.inside) {
+        const dayNamesDe: Record<string, string> = { mo: "Montag", tu: "Dienstag", we: "Mittwoch", th: "Donnerstag", fr: "Freitag", sa: "Samstag", su: "Sonntag" };
+        const closedMsg = openingCheck.slots.length > 0
+          ? `Am ${dayNamesDe[openingCheck.dayKey]} haben wir von ${formatSlotsHuman(openingCheck.slots)} geoeffnet.`
+          : `Am ${dayNamesDe[openingCheck.dayKey]} ist geschlossen.`;
+        return textContent({
+          available: false,
+          instruction: `ABSAGEN: Der gewuenschte Termin liegt ausserhalb der Oeffnungszeiten. ${closedMsg} Biete einen Slot innerhalb der Zeiten an.`,
+        });
+      }
+    }
+
+    // 3) Tisch-Verfuegbarkeit zur neuen Zeit pruefen
+    const [{ data: tables }, { data: zones }, { data: existing }] = await Promise.all([
+      admin.from("tables").select("*").eq("restaurant_id", restaurantId),
+      admin.from("zones").select("*").eq("restaurant_id", restaurantId),
+      admin.from("reservations").select("*").eq("restaurant_id", restaurantId)
+        .gte("starts_at", new Date(newStartsAt.getTime() - 4 * 3600_000).toISOString())
+        .lte("starts_at", new Date(newStartsAt.getTime() + 4 * 3600_000).toISOString()),
+    ]);
+
+    // Existing OHNE die zu verschiebende Reservierung — sonst kollidiert sie mit sich selbst
+    const existingFiltered = ((existing ?? []) as Reservation[]).filter((r) => r.id !== target!.id);
+
+    const decision = autoAssign({
+      tables: (tables ?? []) as TableRow[],
+      zones: (zones ?? []) as Zone[],
+      existing: existingFiltered,
+      partySize: newPartySize,
+      startsAt: newStartsAt,
+      durationMin: target.duration_min,
+      preferredZoneName: null,
+      requireAccessible: false,
+    });
+
+    if (!decision.tableId) {
+      return textContent({
+        available: false,
+        instruction: `ABSAGEN: Zur neuen Zeit ist kein passender Tisch frei. Schlage dem Gast 30 Minuten frueher oder spaeter vor.`,
+      });
+    }
+
+    // 4) Update — table_id wird ggf. neu gesetzt, status bleibt
+    const { data: updated, error: updErr } = await admin.from("reservations")
+      .update({
+        starts_at: newStartsAt.toISOString(),
+        party_size: newPartySize,
+        table_id: decision.tableId,
+        auto_assigned: decision.autoAssigned,
+        approval_reason: decision.approvalReason,
+      })
+      .eq("id", target.id)
+      .eq("restaurant_id", restaurantId)
+      .select().single();
+
+    if (updErr || !updated) {
+      logVoiceEventAsync({
+        restaurantId,
+        source: "mcp",
+        kind: "error",
+        tool: "reschedule_reservation",
+        message: `Verschiebung fehlgeschlagen: ${updErr?.message ?? "unbekannter Fehler"}`,
+        details: {
+          reservation_id: target.id,
+          new_starts_at: newStartsAt.toISOString(),
+          db_error: updErr?.message,
+        },
+        reservationId: target.id,
+      });
+      return textContent({
+        instruction: `ABSAGEN: Verschiebung fehlgeschlagen (${updErr?.message ?? "unbekannt"}). Bitte nochmal versuchen.`,
+      });
+    }
+
+    notifyAsync({ restaurantId, reservationId: target.id, kind: "confirmed" });
+
+    const newTable = ((tables ?? []) as TableRow[]).find((t) => t.id === decision.tableId);
+    const zoneName = newTable?.zone_id ? ((zones ?? []) as Zone[]).find((z) => z.id === newTable.zone_id)?.name ?? null : null;
+
+    return textContent({
+      reservation_id: target.id,
+      booking_code: target.code,
+      old_starts_at: target.starts_at,
+      new_starts_at: newStartsAt.toISOString(),
+      new_table: newTable ? { id: newTable.id, label: newTable.label, zone: zoneName } : null,
+      instruction: `FERTIG: Reservierung von ${target.guest_name} (Buchungsnr. ${target.code ?? "—"}) verschoben auf ${parsedNew.berlinLocal}, ${newPartySize} Personen, Bereich ${zoneName ?? "Innenraum"}. Sage dem Gast woertlich: "Alles klar, ich habe Sie auf ${parsedNew.berlinLocal} verschoben${target.code ? `, Ihre Buchungsnummer ${target.code.split("").join("-")} bleibt gleich` : ""}. Wir freuen uns auf Sie."`,
     });
   }
 

@@ -4,6 +4,7 @@ import { authenticateWebhook, logWebhook } from "@/lib/voice-auth";
 import { logVoiceEventAsync } from "@/lib/voice-events";
 import { readIdempotencyKey, checkIdempotency, storeIdempotency } from "@/lib/idempotency";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { notifyAsync } from "@/lib/notifications";
 
 /**
  * POST /api/v1/voice/cancel
@@ -67,7 +68,7 @@ export async function POST(request: Request) {
     return NextResponse.json(resp);
   }
 
-  const { data, error } = await query.select();
+  const { data, error } = await query.select("id");
   if (error) {
     logVoiceEventAsync({
       restaurantId: auth.restaurantId,
@@ -81,6 +82,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   const cancelled = data?.length ?? 0;
+  // Notify pro storno-tem Reservierung
+  for (const r of (data ?? []) as { id: string }[]) {
+    notifyAsync({ restaurantId: auth.restaurantId, reservationId: r.id, kind: "cancelled" });
+  }
   if (cancelled === 0 && (body.reservation_id || (body.phone && body.starts_at))) {
     logVoiceEventAsync({
       restaurantId: auth.restaurantId,

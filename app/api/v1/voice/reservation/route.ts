@@ -6,6 +6,7 @@ import { generateUniqueBookingCode } from "@/lib/booking-code";
 import { logVoiceEventAsync } from "@/lib/voice-events";
 import { readIdempotencyKey, checkIdempotency, storeIdempotency } from "@/lib/idempotency";
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { notifyAsync } from "@/lib/notifications";
 import type { Reservation, TableRow, Zone } from "@/lib/types";
 
 /**
@@ -222,5 +223,10 @@ export async function POST(request: Request) {
     // inklusive booking_code, sodass der Voice-Agent die Nummer korrekt ansagt.
     await storeIdempotency(auth.restaurantId, idemKey, endpoint, 201, resp);
   }
+  notifyAsync({
+    restaurantId: auth.restaurantId,
+    reservationId: reservation.id,
+    kind: decision.status === "Angefragt" ? "approval_required" : "confirmed",
+  });
   return NextResponse.json(resp, { status: 201 });
 }
