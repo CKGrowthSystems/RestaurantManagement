@@ -116,27 +116,37 @@ export function BrandWordmark({
   /** Optional Tenant-Logo-URL aus settings.branding.logo_url. */
   logoSrc?: string | null;
 }) {
-  // Adaptive sizing: longer names get smaller font + tighter letter-spacing
-  // so they still fit in the 232px sidebar without overflowing.
+  // Adaptive sizing: laengere Namen werden etwas kleiner gerendert, damit sie
+  // ohne Truncation in die 232px-Sidebar passen. Bei sehr langen Namen erlauben
+  // wir Zeilenumbruch — der Name muss IMMER komplett sichtbar sein.
   const len = name.length;
-  const fontSize = len <= 8 ? 15 : len <= 14 ? 13 : len <= 20 ? 11 : 10;
-  const letterSpacing = len <= 8 ? 2.5 : len <= 14 ? 1.6 : len <= 20 ? 0.8 : 0.3;
+  const fontSize = len <= 10 ? 14 : len <= 18 ? 12 : len <= 28 ? 11 : 10;
+  const letterSpacing = len <= 10 ? 2.0 : len <= 18 ? 1.2 : 0.6;
   return (
-    <div style={{ display: "inline-flex", alignItems: "center", gap: 10, maxWidth: "100%" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, maxWidth: "100%" }}>
       <BrandMark size={32} src={logoSrc} style={{ flexShrink: 0 }} />
-      <div style={{ display: "flex", flexDirection: "column", lineHeight: 1, minWidth: 0, flex: 1 }}>
+      <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }}>
         <span
           title={name}
           style={{
             fontSize, fontWeight: 600, letterSpacing,
             color: "var(--hi-ink)",
-            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            // Mehrzeilig erlaubt — niemals abschneiden. word-break: break-word
+            // damit auch ein einzelnes langes Wort zur Not umbricht.
+            whiteSpace: "normal",
+            wordBreak: "break-word",
+            overflowWrap: "anywhere",
+            lineHeight: 1.15,
           }}
         >
           {name}
         </span>
         {sub && (
-          <span style={{ fontSize: 8.5, letterSpacing: 1.8, marginTop: 3, color: "var(--hi-muted)", fontWeight: 500 }}>{sub}</span>
+          <span style={{
+            fontSize: 8.5, letterSpacing: 1.8, marginTop: 4,
+            color: "var(--hi-muted)", fontWeight: 500,
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+          }}>{sub}</span>
         )}
       </div>
     </div>

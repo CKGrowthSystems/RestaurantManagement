@@ -558,7 +558,7 @@ function EditableWordmark({ initial, logoUrl = null }: { initial: string; logoUr
         transition: "background 120ms ease",
       }}
     >
-      <BrandWordmark name={savedValue.toUpperCase()} sub="" logoSrc={logoUrl} />
+      <BrandWordmark name={savedValue.toUpperCase()} sub="HOSTSYSTEM" logoSrc={logoUrl} />
       {hover && (
         <span style={{
           position: "absolute", top: 4, right: 4,
