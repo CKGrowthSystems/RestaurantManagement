@@ -29,6 +29,7 @@ export default async function SettingsPage() {
     voice_prompt: null,
     branding: null,
     notify: null,
+    calendar: null,
   };
 
   return (

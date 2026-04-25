@@ -136,6 +136,8 @@ create table if not exists reservations (
   updated_at      timestamptz not null default now()
 );
 create unique index if not exists reservations_code_unique on reservations (restaurant_id, code) where code is not null;
+
+-- Settings: calendar JSON (siehe Migration 0010 fuer Doku)
 create index if not exists reservations_time_idx   on reservations (restaurant_id, starts_at);
 create index if not exists reservations_table_idx  on reservations (table_id, starts_at);
 create index if not exists reservations_status_idx on reservations (status);

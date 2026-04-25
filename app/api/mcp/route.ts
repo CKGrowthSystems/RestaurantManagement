@@ -20,6 +20,11 @@ import { parseStartsAt, currentDateTimeInfo } from "@/lib/date-parsing";
 import { phonesMatch } from "@/lib/phone";
 import { generateUniqueBookingCode } from "@/lib/booking-code";
 import { normalizeOpeningSlots, isOpenAt, formatSlotsHuman, type OpeningSlot } from "@/lib/opening-hours";
+import {
+  isClosureForDate, getSpecialHoursForDate, getActiveAnnouncements, getUpcomingClosures,
+  getDocumentText, todayBerlinISO, dateToBerlinISO,
+  type CalendarData,
+} from "@/lib/calendar";
 import type { Reservation, TableRow, Zone } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -71,6 +76,25 @@ const TOOLS = [
     name: "get_opening_hours",
     description: "Gibt die Öffnungszeiten pro Wochentag zurück. Für Fragen wie 'wann habt ihr auf?'.",
     inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_restaurant_context",
+    description:
+      "PFLICHT zu Beginn jedes Anrufs (direkt nach get_current_date_time). Liefert Echtzeit-Kontext: ob heute geschlossen ist (Urlaub/Feiertag), ob Sonderöffnungszeiten gelten, aktuelle Ankündigungen, ob Speisekarte/Allergene zur Verfügung stehen, Hinweis-Texte zu Allergien/Kindern/Gruppen. Damit weiß die KI sofort was sie sagen darf und welche weiteren Tools verfügbar sind.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "lookup_menu",
+    description:
+      "Sucht im hochgeladenen Speisekarten- bzw. Allergen-Text nach einem Begriff (z.B. 'vegetarisch', 'glutenfrei', 'Nüsse', 'Tagesgericht', 'Wein'). Liefert relevante Snippets zurück. Nutze diesen Tool wenn der Gast nach Speisen, Diäten, Allergenen oder Sonderwünschen fragt. NIEMALS Inhalte erfinden — nur was als Snippet zurückkommt.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Suchbegriff (z.B. 'vegetarisch', 'Nüsse', 'Wein')." },
+        source: { type: "string", enum: ["menu", "allergens", "both"], description: "Wo gesucht werden soll. Default 'both'." },
+      },
+      required: ["query"],
+    },
   },
   {
     name: "cancel_reservation",
@@ -167,21 +191,66 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
       });
     }
     const startsAt = new Date(parsed.iso);
+    const dateISO = dateToBerlinISO(startsAt);
 
-    // Opening hours check
-    const { data: settings } = await admin.from("settings").select("opening_hours").eq("restaurant_id", restaurantId).maybeSingle();
+    // Settings + Calendar
+    const { data: settings } = await admin.from("settings")
+      .select("opening_hours, calendar")
+      .eq("restaurant_id", restaurantId).maybeSingle();
     const opening = (settings as any)?.opening_hours ?? null;
-    const openingCheck = isWithinOpeningHours(startsAt, opening);
-    if (openingCheck && !openingCheck.inside) {
-      const dayNamesDe: Record<string, string> = { mo: "Montag", tu: "Dienstag", we: "Mittwoch", th: "Donnerstag", fr: "Freitag", sa: "Samstag", su: "Sonntag" };
-      const closedMsg = openingCheck.slots.length > 0
-        ? `Am ${dayNamesDe[openingCheck.dayKey]} haben wir von ${formatSlotsHuman(openingCheck.slots)} geöffnet.`
-        : `Am ${dayNamesDe[openingCheck.dayKey]} ist geschlossen.`;
+    const calendar = ((settings as any)?.calendar ?? {}) as CalendarData;
+
+    // 1) Closure-Check (Urlaub / Feiertag)
+    const closure = isClosureForDate(calendar, dateISO);
+    if (closure && closure.blocks_booking !== false) {
+      const aiMsg = closure.ai_message?.trim();
+      const reason = closure.reason || "geschlossen";
+      const customAiText = aiMsg
+        ? aiMsg
+        : `Wir haben vom ${closure.from} bis ${closure.to} geschlossen (${reason}).`;
       return textContent({
         available: false,
-        instruction: `ABSAGEN: Der gewünschte Zeitpunkt liegt außerhalb der Öffnungszeiten. ${closedMsg} Biete dem Gast eine Zeit innerhalb der Öffnungszeiten an.`,
+        closed: true,
+        closure_reason: reason,
+        closed_until: closure.to,
+        instruction: `ABSAGEN: Restaurant am ${parsed.berlinLocal} geschlossen. Sage dem Gast wörtlich: "${customAiText}" Schlage einen Termin nach dem ${closure.to} vor.`,
         parsed_date: parsed.berlinLocal,
       });
+    }
+
+    // 2) Special-Hours-Check (Sondertage wie Heiligabend) — uebersteuern reguläre Zeiten
+    const special = getSpecialHoursForDate(calendar, dateISO);
+    if (special && special.slots.length > 0) {
+      const startMin = startsAt.getUTCHours() * 60 + startsAt.getUTCMinutes();
+      // Wir nutzen Berlin-Zeit fuer den Vergleich
+      const fmt = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit", hour12: false,
+      }).formatToParts(startsAt);
+      const hh = Number(fmt.find((p) => p.type === "hour")?.value ?? "0");
+      const mm = Number(fmt.find((p) => p.type === "minute")?.value ?? "0");
+      const insideSpecial = isOpenAt(special.slots, hh, mm);
+      if (!insideSpecial) {
+        return textContent({
+          available: false,
+          instruction: `ABSAGEN: Am ${parsed.berlinLocal} gelten Sonderöffnungszeiten${special.note ? ` (${special.note})` : ""}: ${formatSlotsHuman(special.slots)}. Schlage dem Gast einen Slot in diesem Fenster vor.`,
+          parsed_date: parsed.berlinLocal,
+        });
+      }
+      // Special slot ok → weiter zum Tisch-Verfuegbarkeits-Check (Opening hours skip)
+    } else {
+      // 3) Reguläre Öffnungszeiten (nur wenn keine Sondertage greifen)
+      const openingCheck = isWithinOpeningHours(startsAt, opening);
+      if (openingCheck && !openingCheck.inside) {
+        const dayNamesDe: Record<string, string> = { mo: "Montag", tu: "Dienstag", we: "Mittwoch", th: "Donnerstag", fr: "Freitag", sa: "Samstag", su: "Sonntag" };
+        const closedMsg = openingCheck.slots.length > 0
+          ? `Am ${dayNamesDe[openingCheck.dayKey]} haben wir von ${formatSlotsHuman(openingCheck.slots)} geöffnet.`
+          : `Am ${dayNamesDe[openingCheck.dayKey]} ist geschlossen.`;
+        return textContent({
+          available: false,
+          instruction: `ABSAGEN: Der gewünschte Zeitpunkt liegt außerhalb der Öffnungszeiten. ${closedMsg} Biete dem Gast eine Zeit innerhalb der Öffnungszeiten an.`,
+          parsed_date: parsed.berlinLocal,
+        });
+      }
     }
 
     const [{ data: tables }, { data: zones }, { data: existing }] = await Promise.all([
@@ -408,6 +477,116 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
   // unscharf verglichen (Name case-insensitive partial, Telefon
   // formatunabhaengig). Bei mehreren Treffern → NACHFRAGEN.
   // ==================================================================
+  // ==================================================================
+  // get_restaurant_context — wird zu Beginn jedes Anrufs gerufen
+  // ==================================================================
+  if (name === "get_restaurant_context") {
+    const { data } = await admin.from("settings")
+      .select("calendar")
+      .eq("restaurant_id", restaurantId).maybeSingle();
+    const calendar = ((data as any)?.calendar ?? {}) as CalendarData;
+    const today = todayBerlinISO();
+
+    const closureToday = isClosureForDate(calendar, today);
+    const specialToday = getSpecialHoursForDate(calendar, today);
+    const announcements = getActiveAnnouncements(calendar, today);
+    const upcoming = getUpcomingClosures(calendar, today, 3);
+
+    let instruction: string;
+    if (closureToday) {
+      const aiMsg = closureToday.ai_message?.trim();
+      const fallback = `Wir haben vom ${closureToday.from} bis ${closureToday.to} geschlossen (${closureToday.reason}).`;
+      instruction = `WICHTIG: Heute ist geschlossen. Wenn der Gast eine Reservierung will, sage höflich: "${aiMsg ?? fallback}" Schlage einen Termin nach dem ${closureToday.to} vor.`;
+    } else if (specialToday) {
+      instruction = `Heute (${today}) gelten Sonderöffnungszeiten${specialToday.note ? ` — ${specialToday.note}` : ""}: ${formatSlotsHuman(specialToday.slots)}. Erwähne das wenn der Gast nach Öffnungszeiten oder einer Buchung fragt.`;
+    } else if (announcements.length > 0) {
+      instruction = `Aktuelle Ankündigungen: ${announcements.map((a) => `"${a.message}"`).join(" / ")}. Erwähne MAXIMAL EINE wenn passend (z.B. wenn der Gast nach Programm/Tagesgericht fragt). Niemals alle gleichzeitig vorlesen.`;
+    } else {
+      instruction = "Normalbetrieb heute. Falls der Gast nach besonderen Sachen fragt, gibt es nichts zu erwähnen.";
+    }
+
+    return textContent({
+      today_date: today,
+      is_closed_today: !!closureToday,
+      closure_today: closureToday,
+      special_hours_today: specialToday,
+      upcoming_closures: upcoming,
+      active_announcements: announcements.map((a) => a.message),
+      menu_available: !!getDocumentText(calendar.menu),
+      allergens_available: !!getDocumentText(calendar.allergens),
+      menu_highlights: calendar.menu_highlights ?? [],
+      policies: calendar.policies ?? {},
+      instruction,
+    });
+  }
+
+  // ==================================================================
+  // lookup_menu — Substring-Suche in Menue/Allergen-Texten
+  // ==================================================================
+  if (name === "lookup_menu") {
+    const query = String(args.query ?? "").toLowerCase().trim();
+    if (!query || query.length < 2) {
+      return textContent({
+        instruction: "NACHFRAGEN: Was genau soll ich im Menü suchen? Bitte ein Stichwort vom Gast erfragen.",
+      });
+    }
+    const source = (args.source as string) ?? "both";
+
+    const { data } = await admin.from("settings")
+      .select("calendar")
+      .eq("restaurant_id", restaurantId).maybeSingle();
+    const calendar = ((data as any)?.calendar ?? {}) as CalendarData;
+
+    const sources: { type: string; text: string }[] = [];
+    const menuText = getDocumentText(calendar.menu);
+    const allergensText = getDocumentText(calendar.allergens);
+    if ((source === "menu" || source === "both") && menuText) {
+      sources.push({ type: "Speisekarte", text: menuText });
+    }
+    if ((source === "allergens" || source === "both") && allergensText) {
+      sources.push({ type: "Allergene", text: allergensText });
+    }
+
+    if (sources.length === 0) {
+      return textContent({
+        query,
+        matches: [],
+        instruction: "NACHFRAGEN: Wir haben aktuell keine Speisekarte hochgeladen. Bitte den Gast vor Ort oder direkt am Telefon mit einem Kollegen sprechen lassen.",
+      });
+    }
+
+    const matches: { source: string; snippet: string }[] = [];
+    for (const src of sources) {
+      const haystack = src.text.toLowerCase();
+      let idx = 0;
+      while (matches.length < 5) {
+        const found = haystack.indexOf(query, idx);
+        if (found === -1) break;
+        const start = Math.max(0, found - 60);
+        const end = Math.min(src.text.length, found + query.length + 140);
+        const snippet = src.text.slice(start, end).replace(/\s+/g, " ").trim();
+        matches.push({ source: src.type, snippet });
+        idx = found + query.length;
+      }
+      if (matches.length >= 5) break;
+    }
+
+    if (matches.length === 0) {
+      return textContent({
+        query,
+        matches: [],
+        instruction: `NACHFRAGEN: "${query}" finde ich nicht im hochgeladenen Speisekarten-/Allergen-Text. Frag den Gast ob er was anderes meinen könnte oder verbinde ihn an die Küche weiter.`,
+      });
+    }
+
+    const compact = matches.slice(0, 3).map((m) => `[${m.source}] ${m.snippet}`).join("  •  ");
+    return textContent({
+      query,
+      matches,
+      instruction: `Erzähl dem Gast natürlich was du gefunden hast: "${compact}". WICHTIG: nicht wörtlich vorlesen, fasse es zusammen, in kurzen Sätzen. Preise nur nennen wenn sie im Snippet stehen — niemals raten oder erfinden.`,
+    });
+  }
+
   if (name === "cancel_reservation") {
     // Fast-Path 1: Buchungsnummer (Code) — bevorzugt!
     if (args.code) {

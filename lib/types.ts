@@ -182,6 +182,11 @@ export interface Settings {
   voice_prompt: string | null;
   branding: Branding | null;
   notify: Notify | null;
+  /**
+   * Voice-AI-Kontext: Schliesstage, Sondertage, Ankuendigungen, Speisekarten/Allergen-PDFs,
+   * Policies. Struktur siehe lib/calendar.ts (CalendarData).
+   */
+  calendar: import("./calendar").CalendarData | null;
 }
 
 export interface AppUser {

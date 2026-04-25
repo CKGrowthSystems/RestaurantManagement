@@ -29,6 +29,12 @@ export async function PATCH(request: Request) {
   if ("notify" in body) {
     patch.notify = body.notify === null ? null : { ...(existing?.notify ?? {}), ...body.notify };
   }
+  // calendar wird im Ganzen ersetzt (closures/special_hours/announcements sind
+  // Listen — der UI-Editor hat immer den vollstaendigen Stand). Damit verhindern
+  // wir ein Merge-Chaos zwischen geloeschten und neuen Items.
+  if ("calendar" in body) {
+    patch.calendar = body.calendar ?? {};
+  }
 
   const { data, error } = await ctx.supabase
     .from("settings").upsert(patch).select().single();

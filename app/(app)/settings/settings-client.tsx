@@ -30,6 +30,7 @@ const TABS = [
   { id: "profile", label: "Mein Profil" },
   { id: "timer", label: "Freigabe-Timer" },
   { id: "hours", label: "Öffnungszeiten" },
+  { id: "calendar", label: "Kalender & Inhalte" },
   { id: "notify", label: "Benachrichtigungen" },
   { id: "theme", label: "Branding / Whitelabel" },
   { id: "users", label: "Benutzer & Rollen" },
@@ -42,6 +43,7 @@ export function SettingsClient({ initial }: { initial: Settings }) {
   const [hours, setHours] = useState(initial.opening_hours);
   const [branding, setBranding] = useState<Branding>({ ...DEFAULT_BRANDING, ...(initial.branding ?? {}) });
   const [notify, setNotify] = useState<Notify>({ ...DEFAULT_NOTIFY, ...(initial.notify ?? {}) });
+  const [calendar, setCalendar] = useState<any>(initial.calendar ?? {});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -56,6 +58,7 @@ export function SettingsClient({ initial }: { initial: Settings }) {
         opening_hours: hours,
         branding,
         notify,
+        calendar,
       }),
     });
     setSaving(false); setSaved(true);
@@ -164,6 +167,10 @@ export function SettingsClient({ initial }: { initial: Settings }) {
 
           {tab === "hours" && (
             <OpeningHoursTab hours={hours} setHours={setHours} />
+          )}
+
+          {tab === "calendar" && (
+            <CalendarTab calendar={calendar} setCalendar={setCalendar} />
           )}
 
           {tab === "profile" && (
@@ -360,6 +367,515 @@ function OpeningHoursTab({
     </>
   );
 }
+
+// ============================================================================
+// Kalender & Inhalte — Voice-AI-Kontext
+// Schliesstage / Sondertage / Ankuendigungen / Policies / PDF-Uploads
+// ============================================================================
+
+function newId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function CalendarTab({ calendar, setCalendar }: { calendar: any; setCalendar: (c: any) => void }) {
+  // Helpers fuer einzelne Sektionen
+  const closures = (calendar?.closures ?? []) as any[];
+  const specialHours = (calendar?.special_hours ?? []) as any[];
+  const announcements = (calendar?.announcements ?? []) as any[];
+  const policies = (calendar?.policies ?? {}) as any;
+  const highlights = (calendar?.menu_highlights ?? []) as string[];
+
+  function update(patch: any) {
+    setCalendar({ ...calendar, ...patch });
+  }
+
+  return (
+    <>
+      <Header
+        title="Kalender & Inhalte"
+        sub="Was die Voice-KI für jeden Anruf wissen muss: Urlaub, Sondertage, Ankündigungen, Speisekarte, Allergene und Hinweise zu Allergien/Kindern/Gruppen."
+      />
+
+      {/* SECTION 1: Schliesstage */}
+      <ClosuresSection closures={closures} onChange={(v) => update({ closures: v })} />
+
+      {/* SECTION 2: Sondertage */}
+      <SpecialHoursSection items={specialHours} onChange={(v) => update({ special_hours: v })} />
+
+      {/* SECTION 3: Ankuendigungen */}
+      <AnnouncementsSection items={announcements} onChange={(v) => update({ announcements: v })} />
+
+      {/* SECTION 4: Speisekarte (PDF) */}
+      <DocumentSection
+        title="Speisekarte"
+        type="menu"
+        document={calendar?.menu ?? null}
+        onChanged={(doc) => update({ menu: doc })}
+      />
+
+      {/* SECTION 5: Allergene & Diaet (PDF) */}
+      <DocumentSection
+        title="Allergene & Diät-Info"
+        type="allergens"
+        document={calendar?.allergens ?? null}
+        onChanged={(doc) => update({ allergens: doc })}
+      />
+
+      {/* SECTION 6: Menue-Highlights */}
+      <MenuHighlightsSection items={highlights} onChange={(v) => update({ menu_highlights: v })} />
+
+      {/* SECTION 7: Policies */}
+      <PoliciesSection policies={policies} onChange={(v) => update({ policies: v })} />
+    </>
+  );
+}
+
+// ─────────────────────── Closures ───────────────────────
+
+function ClosuresSection({ closures, onChange }: { closures: any[]; onChange: (next: any[]) => void }) {
+  function add() {
+    const today = new Date().toISOString().slice(0, 10);
+    onChange([...closures, { id: newId(), from: today, to: today, reason: "", ai_message: "", blocks_booking: true }]);
+  }
+  function update(i: number, patch: any) {
+    onChange(closures.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+  }
+  function remove(i: number) {
+    onChange(closures.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <HiCard style={{ padding: 20, marginBottom: 16 }}>
+      <SectionHeader icon="🌴" title="Schließtage / Urlaub" sub="Voice-KI lehnt Buchungen in diesen Zeiträumen automatisch ab." />
+      {closures.length === 0 && <Empty text="Keine Schließtage hinterlegt." />}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {closures.map((c, i) => (
+          <div key={c.id ?? i} style={cardStyle}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr auto", gap: 10, marginBottom: 10 }}>
+              <Field label="Von">
+                <input type="date" value={c.from ?? ""} onChange={(e) => update(i, { from: e.target.value })} style={textInputStyle} />
+              </Field>
+              <Field label="Bis">
+                <input type="date" value={c.to ?? ""} onChange={(e) => update(i, { to: e.target.value })} style={textInputStyle} />
+              </Field>
+              <Field label="Grund">
+                <input type="text" placeholder="z.B. Sommerurlaub" value={c.reason ?? ""} onChange={(e) => update(i, { reason: e.target.value })} style={textInputStyle} />
+              </Field>
+              <button onClick={() => remove(i)} style={trashBtn}><HiIcon kind="trash" size={12} /></button>
+            </div>
+            <Field label="Ansage-Text für die KI (optional)">
+              <input
+                type="text"
+                placeholder='z.B. "Wir machen vom 1. bis 15. August Urlaub. Ab dem 16. sind wir wieder da!"'
+                value={c.ai_message ?? ""}
+                onChange={(e) => update(i, { ai_message: e.target.value })}
+                style={textInputStyle}
+              />
+            </Field>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 11.5, color: "var(--hi-muted)" }}>
+              <input type="checkbox" checked={c.blocks_booking !== false} onChange={(e) => update(i, { blocks_booking: e.target.checked })}
+                     style={{ accentColor: "var(--hi-accent)" }} />
+              Buchungen in diesem Zeitraum hart ablehnen (sonst nur Hinweis)
+            </label>
+          </div>
+        ))}
+      </div>
+      <button onClick={add} style={addBtn}><HiIcon kind="plus" size={11} /> Schließtag hinzufügen</button>
+    </HiCard>
+  );
+}
+
+// ─────────────────────── Special Hours ───────────────────────
+
+function SpecialHoursSection({ items, onChange }: { items: any[]; onChange: (next: any[]) => void }) {
+  function add() {
+    const today = new Date().toISOString().slice(0, 10);
+    onChange([...items, { id: newId(), date: today, slots: [{ open: "11:00", close: "14:00" }], note: "" }]);
+  }
+  function update(i: number, patch: any) {
+    onChange(items.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
+  }
+  function remove(i: number) {
+    onChange(items.filter((_, idx) => idx !== i));
+  }
+  function updateSlot(i: number, sIdx: number, patch: any) {
+    const slots = [...(items[i].slots ?? [])];
+    slots[sIdx] = { ...slots[sIdx], ...patch };
+    update(i, { slots });
+  }
+  function addSlot(i: number) {
+    update(i, { slots: [...(items[i].slots ?? []), { open: "17:00", close: "22:00" }] });
+  }
+  function removeSlot(i: number, sIdx: number) {
+    update(i, { slots: (items[i].slots ?? []).filter((_: any, k: number) => k !== sIdx) });
+  }
+
+  return (
+    <HiCard style={{ padding: 20, marginBottom: 16 }}>
+      <SectionHeader icon="🎄" title="Sondertage" sub="Einzelne Tage mit abweichenden Öffnungszeiten — Heiligabend, Sylvester, Feiertage." />
+      {items.length === 0 && <Empty text="Keine Sondertage hinterlegt." />}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {items.map((s, i) => (
+          <div key={s.id ?? i} style={cardStyle}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr auto", gap: 10, marginBottom: 10 }}>
+              <Field label="Datum">
+                <input type="date" value={s.date ?? ""} onChange={(e) => update(i, { date: e.target.value })} style={textInputStyle} />
+              </Field>
+              <Field label="Notiz">
+                <input type="text" placeholder="z.B. Heiligabend nur mittags" value={s.note ?? ""} onChange={(e) => update(i, { note: e.target.value })} style={textInputStyle} />
+              </Field>
+              <button onClick={() => remove(i)} style={trashBtn}><HiIcon kind="trash" size={12} /></button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {(s.slots ?? []).map((slot: any, sIdx: number) => (
+                <div key={sIdx} style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr auto", gap: 8, alignItems: "center" }}>
+                  <input type="time" value={slot.open ?? ""} onChange={(e) => updateSlot(i, sIdx, { open: e.target.value })} style={textInputStyle} />
+                  <span style={{ color: "var(--hi-muted)", fontSize: 12 }}>bis</span>
+                  <input type="time" value={slot.close ?? ""} onChange={(e) => updateSlot(i, sIdx, { close: e.target.value })} style={textInputStyle} />
+                  <button onClick={() => removeSlot(i, sIdx)} style={trashBtn}><HiIcon kind="trash" size={11} /></button>
+                </div>
+              ))}
+              {(s.slots?.length ?? 0) < 3 && (
+                <button onClick={() => addSlot(i)} style={{ ...addBtn, marginTop: 4 }}>
+                  <HiIcon kind="plus" size={11} /> Zeitraum hinzufügen
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      <button onClick={add} style={addBtn}><HiIcon kind="plus" size={11} /> Sondertag hinzufügen</button>
+    </HiCard>
+  );
+}
+
+// ─────────────────────── Announcements ───────────────────────
+
+function AnnouncementsSection({ items, onChange }: { items: any[]; onChange: (next: any[]) => void }) {
+  function add() {
+    onChange([...items, { id: newId(), message: "", active_from: null, active_until: null }]);
+  }
+  function update(i: number, patch: any) {
+    onChange(items.map((a, idx) => (idx === i ? { ...a, ...patch } : a)));
+  }
+  function remove(i: number) {
+    onChange(items.filter((_, idx) => idx !== i));
+  }
+
+  return (
+    <HiCard style={{ padding: 20, marginBottom: 16 }}>
+      <SectionHeader icon="📢" title="Ankündigungen" sub="Was die KI erwähnen darf — z.B. Live-Musik, Tagesangebote, Renovation." />
+      {items.length === 0 && <Empty text="Keine Ankündigungen aktiv." />}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {items.map((a, i) => (
+          <div key={a.id ?? i} style={cardStyle}>
+            <Field label="Ankündigung">
+              <input
+                type="text"
+                placeholder='z.B. "Jeden Freitag Live-Musik ab 20 Uhr"'
+                value={a.message ?? ""}
+                onChange={(e) => update(i, { message: e.target.value })}
+                style={textInputStyle}
+              />
+            </Field>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10, marginTop: 10 }}>
+              <Field label="Aktiv ab (optional)">
+                <input type="date" value={a.active_from ?? ""} onChange={(e) => update(i, { active_from: e.target.value || null })} style={textInputStyle} />
+              </Field>
+              <Field label="Aktiv bis (optional)">
+                <input type="date" value={a.active_until ?? ""} onChange={(e) => update(i, { active_until: e.target.value || null })} style={textInputStyle} />
+              </Field>
+              <button onClick={() => remove(i)} style={{ ...trashBtn, alignSelf: "flex-end" }}><HiIcon kind="trash" size={12} /></button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button onClick={add} style={addBtn}><HiIcon kind="plus" size={11} /> Ankündigung hinzufügen</button>
+    </HiCard>
+  );
+}
+
+// ─────────────────────── Document Upload (PDF) ───────────────────────
+
+function DocumentSection({
+  title, type, document, onChanged,
+}: { title: string; type: "menu" | "allergens"; document: any; onChanged: (doc: any) => void }) {
+  const router = useRouter();
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [showManual, setShowManual] = useState(false);
+  const [manualText, setManualText] = useState<string>(document?.manual_text ?? "");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setManualText(document?.manual_text ?? "");
+  }, [document?.manual_text]);
+
+  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null); setWarning(null); setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`/api/branding/document?type=${type}`, { method: "POST", body: form });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      onChanged(data.document);
+      if (data.warning) setWarning(data.warning);
+      router.refresh();
+    } catch (err: any) {
+      setError(err?.message ?? "Upload fehlgeschlagen");
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function onRemove() {
+    if (!confirm(`${title} wirklich entfernen?`)) return;
+    setError(null); setUploading(true);
+    try {
+      const res = await fetch(`/api/branding/document?type=${type}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Entfernen fehlgeschlagen");
+      onChanged(null);
+      router.refresh();
+    } catch (err: any) {
+      setError(err?.message ?? "Entfernen fehlgeschlagen");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function saveManual() {
+    setError(null); setUploading(true);
+    try {
+      const res = await fetch(`/api/branding/document?type=${type}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ manual_text: manualText }),
+      });
+      if (!res.ok) throw new Error("Speichern fehlgeschlagen");
+      const data = await res.json();
+      onChanged(data.document);
+    } catch (err: any) {
+      setError(err?.message ?? "Speichern fehlgeschlagen");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  const hasDoc = !!(document?.pdf_url || document?.manual_text || document?.extracted_text);
+  const charCount = (document?.extracted_text?.length ?? 0) + (document?.manual_text?.length ?? 0);
+
+  return (
+    <HiCard style={{ padding: 20, marginBottom: 16 }}>
+      <SectionHeader icon={type === "menu" ? "🍽" : "⚠️"} title={title} sub={type === "menu" ? "Speisekarte als PDF — KI sucht im Text wenn Gäste nach Speisen, vegetarisch, glutenfrei usw. fragen." : "Allergen- & Diät-Informationen — KI antwortet bei entsprechenden Fragen aus diesem Dokument."} />
+
+      {hasDoc && document?.pdf_url ? (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 14,
+          padding: 12, borderRadius: 8,
+          background: "var(--hi-surface-raised)",
+          border: "1px solid var(--hi-line)",
+        }}>
+          <div style={{
+            width: 40, height: 50, borderRadius: 4,
+            background: "color-mix(in oklch, var(--hi-accent) 14%, var(--hi-surface))",
+            color: "var(--hi-accent)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 11, fontWeight: 700,
+          }}>PDF</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <a href={document.pdf_url} target="_blank" rel="noopener" style={{ fontSize: 13, color: "var(--hi-ink)", fontWeight: 500, textDecoration: "none", display: "block" }}>
+              {document.pdf_filename ?? "Dokument.pdf"}
+            </a>
+            <div style={{ fontSize: 10.5, color: "var(--hi-muted)", marginTop: 2 }}>
+              {charCount > 0 ? `~${charCount.toLocaleString("de-DE")} Zeichen extrahiert` : "Kein Text — bitte manuell eintragen"} ·{" "}
+              {document.uploaded_at ? new Date(document.uploaded_at).toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" }) : ""}
+            </div>
+          </div>
+          <button onClick={() => fileRef.current?.click()} disabled={uploading} style={smallBtn}>{uploading ? "..." : "Ersetzen"}</button>
+          <button onClick={onRemove} disabled={uploading} style={{ ...smallBtn, color: "oklch(0.74 0.16 25)", borderColor: "color-mix(in oklch, oklch(0.66 0.2 25) 30%, var(--hi-line))" }}>Entfernen</button>
+        </div>
+      ) : (
+        <div
+          onClick={() => fileRef.current?.click()}
+          style={{
+            cursor: uploading ? "wait" : "pointer",
+            padding: "22px 18px", borderRadius: 10,
+            border: "1.6px dashed var(--hi-line)",
+            textAlign: "center", background: "var(--hi-surface-raised)",
+            color: "var(--hi-muted-strong)", fontSize: 13,
+          }}
+        >
+          <div style={{ fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>
+            {uploading ? "Lädt hoch..." : "PDF auswählen oder hierher ziehen"}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--hi-muted)" }}>
+            Max. 10 MB. Tipp: PDF muss durchsuchbar sein (kein Scan), sonst Text manuell eintragen.
+          </div>
+        </div>
+      )}
+
+      <input ref={fileRef} type="file" accept="application/pdf" onChange={onPick} style={{ display: "none" }} />
+
+      {warning && (
+        <div style={{
+          marginTop: 10, padding: "8px 12px", borderRadius: 7, fontSize: 12,
+          background: "color-mix(in oklch, oklch(0.75 0.14 70) 14%, transparent)",
+          color: "oklch(0.85 0.13 70)",
+          border: "1px solid color-mix(in oklch, oklch(0.75 0.14 70) 35%, var(--hi-line))",
+        }}>{warning}</div>
+      )}
+      {error && (
+        <div style={{
+          marginTop: 10, padding: "8px 12px", borderRadius: 7, fontSize: 12,
+          background: "color-mix(in oklch, oklch(0.66 0.2 25) 15%, transparent)",
+          color: "oklch(0.82 0.14 25)",
+          border: "1px solid color-mix(in oklch, oklch(0.66 0.2 25) 40%, var(--hi-line))",
+        }}>{error}</div>
+      )}
+
+      <button onClick={() => setShowManual((s) => !s)} style={{ ...addBtn, marginTop: 12 }}>
+        <HiIcon kind="edit" size={11} /> {showManual ? "Manuellen Text ausblenden" : "Text manuell anpassen / einfügen (Fallback)"}
+      </button>
+      {showManual && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 11, color: "var(--hi-muted)", marginBottom: 6 }}>
+            Falls die PDF-Text-Extraktion ungenau war oder du gar kein PDF hast: hier den Text einfach reinpasten.
+            Die KI durchsucht beides (PDF + Manueller Text), nimmt aber den manuellen Text bevorzugt.
+          </div>
+          <textarea
+            value={manualText}
+            onChange={(e) => setManualText(e.target.value)}
+            rows={8}
+            placeholder="VORSPEISEN&#10;Kalamares 8,90€ (Beilage Salat)&#10;Tzatziki 6,50€&#10;..."
+            style={{ ...textInputStyle, fontFamily: '"Geist Mono", monospace', fontSize: 12, resize: "vertical", minHeight: 140 }}
+          />
+          <button onClick={saveManual} disabled={uploading} style={{ ...smallBtn, marginTop: 8 }}>{uploading ? "..." : "Manuellen Text speichern"}</button>
+        </div>
+      )}
+    </HiCard>
+  );
+}
+
+// ─────────────────────── Menue Highlights ───────────────────────
+
+function MenuHighlightsSection({ items, onChange }: { items: string[]; onChange: (next: string[]) => void }) {
+  return (
+    <HiCard style={{ padding: 20, marginBottom: 16 }}>
+      <SectionHeader icon="✨" title="Menü-Highlights" sub="Maximal 5 Stichpunkte — KI darf die erwähnen wenn ein Gast unsicher ist was er bestellen soll." />
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {items.map((h, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center" }}>
+            <input
+              type="text"
+              value={h}
+              onChange={(e) => onChange(items.map((x, idx) => (idx === i ? e.target.value : x)))}
+              placeholder="z.B. Frische Meeresfrüchte aus Rhodos"
+              style={textInputStyle}
+            />
+            <button onClick={() => onChange(items.filter((_, idx) => idx !== i))} style={trashBtn}>
+              <HiIcon kind="trash" size={11} />
+            </button>
+          </div>
+        ))}
+      </div>
+      {items.length < 5 && (
+        <button onClick={() => onChange([...items, ""])} style={addBtn}>
+          <HiIcon kind="plus" size={11} /> Highlight hinzufügen
+        </button>
+      )}
+    </HiCard>
+  );
+}
+
+// ─────────────────────── Policies ───────────────────────
+
+function PoliciesSection({ policies, onChange }: { policies: any; onChange: (next: any) => void }) {
+  function update(key: string, value: string) {
+    onChange({ ...policies, [key]: value || null });
+  }
+  return (
+    <HiCard style={{ padding: 20, marginBottom: 16 }}>
+      <SectionHeader icon="📋" title="Hinweise & Richtlinien" sub="Was die KI sagen darf wenn Gäste danach fragen — ein Satz reicht. Leer = Anfrage an Kollegen weiterleiten." />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Field label="Allergien">
+          <input type="text" value={policies?.allergies ?? ""} onChange={(e) => update("allergies", e.target.value)}
+                 placeholder='z.B. "Bei Allergien bitte direkt mit dem Personal sprechen."'
+                 style={textInputStyle} />
+        </Field>
+        <Field label="Kinder / Familie">
+          <input type="text" value={policies?.kids ?? ""} onChange={(e) => update("kids", e.target.value)}
+                 placeholder='z.B. "Wir haben Kinderstühle und kindgerechte Gerichte."'
+                 style={textInputStyle} />
+        </Field>
+        <Field label="Gruppen ab 10 Personen">
+          <input type="text" value={policies?.groups ?? ""} onChange={(e) => update("groups", e.target.value)}
+                 placeholder='z.B. "Bitte direkt im Restaurant unter 07803 ... anrufen."'
+                 style={textInputStyle} />
+        </Field>
+        <Field label="Dresscode">
+          <input type="text" value={policies?.dress_code ?? ""} onChange={(e) => update("dress_code", e.target.value)}
+                 placeholder='z.B. "Smart Casual — keine kurzen Hosen abends."'
+                 style={textInputStyle} />
+        </Field>
+      </div>
+    </HiCard>
+  );
+}
+
+// ─────────────────────── Shared bits ───────────────────────
+
+function SectionHeader({ icon, title, sub }: { icon: string; title: string; sub: string }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--hi-ink)", display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 18 }}>{icon}</span> {title}
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginTop: 4, lineHeight: 1.5 }}>{sub}</div>
+    </div>
+  );
+}
+
+function Empty({ text }: { text: string }) {
+  return (
+    <div style={{
+      padding: 14, borderRadius: 8,
+      border: "1.4px dashed var(--hi-line)",
+      color: "var(--hi-muted)", fontSize: 12, textAlign: "center",
+    }}>{text}</div>
+  );
+}
+
+const cardStyle: React.CSSProperties = {
+  padding: 14, borderRadius: 8,
+  background: "var(--hi-surface-raised)",
+  border: "1px solid var(--hi-line)",
+};
+const trashBtn: React.CSSProperties = {
+  width: 30, height: 30, borderRadius: 6,
+  background: "transparent",
+  border: "1px solid var(--hi-line)",
+  color: "oklch(0.74 0.16 25)",
+  cursor: "pointer",
+  display: "flex", alignItems: "center", justifyContent: "center",
+};
+const addBtn: React.CSSProperties = {
+  marginTop: 10,
+  padding: "8px 12px", borderRadius: 7,
+  background: "var(--hi-surface-raised)",
+  border: "1px dashed var(--hi-line)",
+  color: "var(--hi-muted-strong)",
+  fontSize: 12, fontWeight: 500,
+  cursor: "pointer",
+  display: "inline-flex", alignItems: "center", gap: 6,
+};
 
 function ProfileTab() {
   const [loading, setLoading] = useState(true);
