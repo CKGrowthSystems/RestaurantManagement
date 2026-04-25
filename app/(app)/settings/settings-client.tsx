@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { HiBtn, HiCard, HiIcon, HiPill, HiTable } from "@/components/primitives";
-import type { Settings, ReleaseMode, Branding, Notify, AppUser } from "@/lib/types";
+import type { Settings, ReleaseMode, Branding, Notify, AppUser, WhatsAppSettings } from "@/lib/types";
 
 const DEFAULT_BRANDING: Branding = {
   public_name: null,
@@ -20,6 +20,21 @@ const DEFAULT_NOTIFY: Notify = {
   daily_digest: false,
 };
 
+const DEFAULT_WHATSAPP: WhatsAppSettings = {
+  enabled: false,
+  phone_number_id: null,
+  access_token: null,
+  business_account_id: null,
+  send_on_confirmed: true,
+  send_on_cancelled: true,
+  send_reminder_hours_before: 2,
+  templates: {
+    confirmation: "booking_confirmation_de",
+    cancellation: "booking_cancellation_de",
+    reminder: "booking_reminder_de",
+  },
+};
+
 const MODES: { id: ReleaseMode; label: string; desc: string }[] = [
   { id: "global", label: "Eine Regel für alle Tische", desc: "Einfach, konsistent, gut für kleine Teams" },
   { id: "zone",   label: "Pro Bereich unterschiedlich", desc: "Terrasse locker, Innenraum straff" },
@@ -32,6 +47,7 @@ const TABS = [
   { id: "hours", label: "Öffnungszeiten" },
   { id: "calendar", label: "Kalender & Inhalte" },
   { id: "notify", label: "Benachrichtigungen" },
+  { id: "whatsapp", label: "WhatsApp an Gäste" },
   { id: "theme", label: "Branding / Whitelabel" },
 ] as const;
 
@@ -42,12 +58,20 @@ export function SettingsClient({ initial }: { initial: Settings }) {
   const [hours, setHours] = useState(initial.opening_hours);
   const [branding, setBranding] = useState<Branding>({ ...DEFAULT_BRANDING, ...(initial.branding ?? {}) });
   const [notify, setNotify] = useState<Notify>({ ...DEFAULT_NOTIFY, ...(initial.notify ?? {}) });
+  const [whatsapp, setWhatsapp] = useState<WhatsAppSettings>(() => {
+    const init = (initial as any).whatsapp ?? {};
+    return { ...DEFAULT_WHATSAPP, ...init };
+  });
   const [calendar, setCalendar] = useState<any>(initial.calendar ?? {});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   async function save() {
     setSaving(true); setSaved(false);
+    // WhatsApp: leeren access_token NICHT mitsenden — Server behaelt den
+    // bestehenden Token. So muss der User ihn nicht jedes Mal neu eingeben.
+    const whatsappPayload: any = { ...whatsapp };
+    if (!whatsappPayload.access_token) delete whatsappPayload.access_token;
     await fetch("/api/settings", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -57,6 +81,7 @@ export function SettingsClient({ initial }: { initial: Settings }) {
         opening_hours: hours,
         branding,
         notify,
+        whatsapp: whatsappPayload,
         calendar,
       }),
     });
@@ -181,6 +206,10 @@ export function SettingsClient({ initial }: { initial: Settings }) {
 
           {tab === "notify" && (
             <NotifyTab notify={notify} setNotify={setNotify} />
+          )}
+
+          {tab === "whatsapp" && (
+            <WhatsAppTab whatsapp={whatsapp} setWhatsapp={setWhatsapp} />
           )}
 
           {tab === "theme" && (
@@ -1241,6 +1270,256 @@ const smallBtn: React.CSSProperties = {
   color: "var(--hi-ink)",
   cursor: "pointer",
 };
+
+// ============================================================================
+// WhatsApp an Gäste — per-Tenant Meta Cloud API
+// ============================================================================
+
+function WhatsAppTab({
+  whatsapp, setWhatsapp,
+}: {
+  whatsapp: WhatsAppSettings;
+  setWhatsapp: (w: WhatsAppSettings) => void;
+}) {
+  const [testPhone, setTestPhone] = useState("");
+  const [testStatus, setTestStatus] = useState<{ kind: "idle" | "sending" | "ok" | "err"; msg?: string }>({ kind: "idle" });
+
+  // Server liefert kein access_token zurueck (redacted), sondern nur den
+  // Indikator access_token_set. Das UI nutzt das um „Token gespeichert" als
+  // Hinweis anzuzeigen, ohne den Token wirklich zu zeigen.
+  const tokenAlreadySet = (whatsapp as any).access_token_set === true && !whatsapp.access_token;
+
+  async function testSend() {
+    if (!testPhone.trim()) return;
+    setTestStatus({ kind: "sending" });
+    try {
+      // Wir muessen ggf. erst speichern, falls der User die Settings noch
+      // nicht persistiert hat — wenn aber schon konfiguriert: direkt senden.
+      const res = await fetch("/api/whatsapp/test-send", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to: testPhone.trim() }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setTestStatus({ kind: "ok", msg: `Gesendet (Message-ID: ${json.message_id ?? "—"})` });
+      } else {
+        setTestStatus({ kind: "err", msg: json.error ?? "Unbekannter Fehler" });
+      }
+    } catch (e: any) {
+      setTestStatus({ kind: "err", msg: e?.message ?? String(e) });
+    }
+  }
+
+  return (
+    <>
+      <Header
+        title="WhatsApp-Bestätigung an Gäste"
+        sub={`Bestätigt einer Reservierung wird automatisch per WhatsApp an den Gast gesendet — von Ihrer eigenen WhatsApp-Business-Nummer. Der Gast sieht den Restaurant-Namen als Absender, nicht "HostSystem". Free Tier von Meta: 1000 Conversations/Monat.`}
+      />
+
+      <HiCard style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)" }}>WhatsApp-Versand aktivieren</div>
+            <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginTop: 2 }}>
+              Schaltet die Tenant-eigenen Credentials scharf
+            </div>
+          </div>
+          <Toggle on={whatsapp.enabled} onChange={(v) => setWhatsapp({ ...whatsapp, enabled: v })} />
+        </div>
+      </HiCard>
+
+      <HiCard style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Meta-Credentials</div>
+        <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14, lineHeight: 1.5 }}>
+          Aus Ihrem Meta Business Manager:
+          <br />
+          1. WhatsApp Business Account (WABA) anlegen + Telefonnummer verifizieren.<br />
+          2. Phone Number ID aus „API-Setup" kopieren.<br />
+          3. System-User-Token mit „whatsapp_business_messaging" + „whatsapp_business_management" generieren.
+        </div>
+
+        <Field label="Phone Number ID">
+          <input
+            value={whatsapp.phone_number_id ?? ""}
+            onChange={(e) => setWhatsapp({ ...whatsapp, phone_number_id: e.target.value })}
+            placeholder="z.B. 123456789012345"
+            className="allow-select"
+            style={textInputStyle}
+          />
+        </Field>
+
+        <Field label="Access Token">
+          <input
+            type="password"
+            value={whatsapp.access_token ?? ""}
+            onChange={(e) => setWhatsapp({ ...whatsapp, access_token: e.target.value })}
+            placeholder={tokenAlreadySet ? "•••••••• (gespeichert — leer lassen um zu behalten)" : "EAAxxxxxx..."}
+            className="allow-select"
+            style={textInputStyle}
+          />
+          {tokenAlreadySet && (
+            <div style={{ fontSize: 10.5, color: "oklch(0.78 0.12 145)", marginTop: 4 }}>
+              ✓ Token ist bereits gespeichert
+            </div>
+          )}
+        </Field>
+
+        <Field label="Business Account ID (optional)">
+          <input
+            value={whatsapp.business_account_id ?? ""}
+            onChange={(e) => setWhatsapp({ ...whatsapp, business_account_id: e.target.value })}
+            placeholder="WABA-ID — nur fuers Audit"
+            className="allow-select"
+            style={textInputStyle}
+          />
+        </Field>
+      </HiCard>
+
+      <HiCard style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 12 }}>
+          Wann soll WhatsApp gesendet werden?
+        </div>
+        <ToggleRow
+          label="Bei bestätigter Reservierung"
+          desc="Sofort nach erfolgreicher Buchung an den Gast"
+          on={whatsapp.send_on_confirmed}
+          onChange={(v) => setWhatsapp({ ...whatsapp, send_on_confirmed: v })}
+        />
+        <ToggleRow
+          label="Bei Stornierung"
+          desc="Wenn die Reservierung storniert wird"
+          on={whatsapp.send_on_cancelled}
+          onChange={(v) => setWhatsapp({ ...whatsapp, send_on_cancelled: v })}
+        />
+
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--hi-line)" }}>
+          <div style={{ fontSize: 12.5, color: "var(--hi-ink)", fontWeight: 500, marginBottom: 6 }}>
+            Erinnerung vor dem Termin
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 10 }}>
+            Wir schicken automatisch eine Erinnerung — alle 15 Minuten prueft das System welche Reservierungen anstehen.
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {[0, 1, 2, 4, 24].map((h) => (
+              <button
+                key={h}
+                onClick={() => setWhatsapp({ ...whatsapp, send_reminder_hours_before: h })}
+                style={{
+                  padding: "5px 11px", borderRadius: 6, fontSize: 11.5,
+                  border: "1px solid",
+                  borderColor: whatsapp.send_reminder_hours_before === h ? "var(--hi-accent)" : "var(--hi-line)",
+                  background: whatsapp.send_reminder_hours_before === h ? "color-mix(in oklch, var(--hi-accent) 15%, transparent)" : "transparent",
+                  color: whatsapp.send_reminder_hours_before === h ? "var(--hi-accent)" : "var(--hi-muted-strong)",
+                  cursor: "pointer", fontFamily: '"Geist Mono", monospace',
+                }}
+              >
+                {h === 0 ? "Aus" : h === 24 ? "1 Tag vorher" : `${h} h vorher`}
+              </button>
+            ))}
+          </div>
+        </div>
+      </HiCard>
+
+      <HiCard style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Template-Namen</div>
+        <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14, lineHeight: 1.5 }}>
+          Diese Templates müssen in Meta Business Manager angelegt + freigegeben sein.
+          Reihenfolge der Variablen: siehe Doku im Setup-Wizard.
+        </div>
+        <Field label="Bestätigung">
+          <input
+            value={whatsapp.templates.confirmation}
+            onChange={(e) => setWhatsapp({ ...whatsapp, templates: { ...whatsapp.templates, confirmation: e.target.value } })}
+            className="allow-select"
+            style={textInputStyle}
+          />
+        </Field>
+        <Field label="Stornierung">
+          <input
+            value={whatsapp.templates.cancellation}
+            onChange={(e) => setWhatsapp({ ...whatsapp, templates: { ...whatsapp.templates, cancellation: e.target.value } })}
+            className="allow-select"
+            style={textInputStyle}
+          />
+        </Field>
+        <Field label="Erinnerung">
+          <input
+            value={whatsapp.templates.reminder}
+            onChange={(e) => setWhatsapp({ ...whatsapp, templates: { ...whatsapp.templates, reminder: e.target.value } })}
+            className="allow-select"
+            style={textInputStyle}
+          />
+        </Field>
+      </HiCard>
+
+      <HiCard style={{ padding: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Test-Versand</div>
+        <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14 }}>
+          Sendet eine Test-Bestätigung an die Nummer unten. Vorher in Settings speichern!
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            type="tel"
+            value={testPhone}
+            onChange={(e) => setTestPhone(e.target.value)}
+            placeholder="z.B. +49 151 12345678"
+            className="allow-select"
+            style={{ ...textInputStyle, flex: 1 }}
+          />
+          <HiBtn kind="outline" size="md" onClick={testSend} disabled={testStatus.kind === "sending" || !whatsapp.enabled}>
+            {testStatus.kind === "sending" ? "Sende…" : "Test senden"}
+          </HiBtn>
+        </div>
+        {testStatus.kind === "ok" && (
+          <div style={{ marginTop: 10, fontSize: 12, color: "oklch(0.78 0.12 145)" }}>
+            ✓ {testStatus.msg}
+          </div>
+        )}
+        {testStatus.kind === "err" && (
+          <div style={{ marginTop: 10, fontSize: 12, color: "oklch(0.7 0.18 25)" }}>
+            ✗ {testStatus.msg}
+          </div>
+        )}
+      </HiCard>
+    </>
+  );
+}
+
+function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!on)}
+      style={{
+        width: 40, height: 22, borderRadius: 11,
+        background: on ? "var(--hi-accent)" : "var(--hi-line)",
+        border: "none", cursor: "pointer",
+        position: "relative", transition: "background 0.15s",
+      }}
+    >
+      <div style={{
+        position: "absolute", top: 2, left: on ? 20 : 2,
+        width: 18, height: 18, borderRadius: 9,
+        background: "#ffffff",
+        transition: "left 0.15s",
+        boxShadow: "0 1px 2px rgba(0,0,0,0.15)",
+      }} />
+    </button>
+  );
+}
+
+function ToggleRow({ label, desc, on, onChange }: { label: string; desc?: string; on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--hi-line)" }}>
+      <div>
+        <div style={{ fontSize: 12.5, color: "var(--hi-ink)" }}>{label}</div>
+        {desc && <div style={{ fontSize: 11, color: "var(--hi-muted)", marginTop: 1 }}>{desc}</div>}
+      </div>
+      <Toggle on={on} onChange={onChange} />
+    </div>
+  );
+}
 
 function ThemeTab({ branding, setBranding }: { branding: Branding; setBranding: (b: Branding) => void }) {
   return (

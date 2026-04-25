@@ -8,6 +8,10 @@
     {
       "path": "/api/admin/daily-digest",
       "schedule": "5 5 * * *"
+    },
+    {
+      "path": "/api/admin/whatsapp-reminders",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

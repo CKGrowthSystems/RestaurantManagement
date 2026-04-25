@@ -59,7 +59,7 @@ const TOOLS = [
   {
     name: "create_reservation",
     description:
-      "Legt eine Reservierung an. NUR aufrufen, nachdem check_availability erfolgreich war (available=true) UND Name/Telefonnummer vom Gast bestätigt sind. Jede erfolgreiche Buchung wird automatisch als 'Bestätigt' angelegt. Gibt 'instruction' zurück (FERTIG / ABSAGEN).",
+      "Legt eine Reservierung an. NUR aufrufen, nachdem check_availability erfolgreich war (available=true) UND Name/Telefonnummer vom Gast bestätigt sind. Jede erfolgreiche Buchung wird automatisch als 'Bestätigt' angelegt. Gibt 'instruction' zurück (FERTIG / ABSAGEN).\n\nWICHTIG — DSGVO-Consent fuer WhatsApp: Wenn das Restaurant WhatsApp-Bestaetigungen aktiviert hat (kannst du an der instruction erkennen oder pauschal anbieten), frage den Gast wörtlich: 'Möchten Sie eine WhatsApp-Bestätigung an die Nummer von der Sie gerade anrufen?' Wenn der Gast Ja sagt: setze whatsapp_consent=true. Wenn Nein oder unklar: setze false. Default ist true — also nur bei expliziter Ablehnung false setzen.",
     inputSchema: {
       type: "object",
       properties: {
@@ -72,6 +72,7 @@ const TOOLS = [
         zone: { type: "string", enum: ["Innenraum", "Fenster", "Terrasse"] },
         accessible: { type: "boolean" },
         note: { type: "string" },
+        whatsapp_consent: { type: "boolean", description: "DSGVO-Consent: hat der Gast einer WhatsApp-Bestaetigung an seine Telefonnummer zugestimmt? Default true. Bei Ablehnung: false." },
       },
       required: ["guest_name", "party_size", "starts_at", "phone"],
     },
@@ -402,6 +403,10 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
     // 5-stellige Buchungsnummer generieren (Voice-friendly fuer Storno)
     const code = await generateUniqueBookingCode(admin, restaurantId);
 
+    // whatsapp_consent: explizit false nur wenn AI ihn auf false setzt.
+    // Default = true (wer den Voice-Agent anruft, hat implizit zugestimmt).
+    const whatsappConsent = args.whatsapp_consent === false ? false : true;
+
     const { data: reservation, error } = await admin.from("reservations").insert({
       restaurant_id: restaurantId,
       table_id: decision.tableId,
@@ -417,6 +422,7 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
       auto_assigned: decision.autoAssigned,
       approval_reason: decision.approvalReason,
       code,
+      whatsapp_consent: whatsappConsent,
     }).select().single();
 
     if (error || !reservation) {

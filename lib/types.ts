@@ -203,6 +203,26 @@ export interface Settings {
    * Policies. Struktur siehe lib/calendar.ts (CalendarData).
    */
   calendar: import("./calendar").CalendarData | null;
+  /**
+   * Per-Tenant WhatsApp-Cloud-API-Konfiguration. Sensitive Felder
+   * (access_token) werden in API-Responses redacted.
+   */
+  whatsapp: WhatsAppSettings | null;
+}
+
+export interface WhatsAppSettings {
+  enabled: boolean;
+  phone_number_id: string | null;
+  access_token: string | null;             // im UI nur als Indikator (set/unset)
+  business_account_id?: string | null;
+  send_on_confirmed: boolean;
+  send_on_cancelled: boolean;
+  send_reminder_hours_before: number;      // 0 = aus
+  templates: {
+    confirmation: string;
+    cancellation: string;
+    reminder: string;
+  };
 }
 
 export interface AppUser {

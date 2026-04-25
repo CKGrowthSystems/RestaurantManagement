@@ -22,6 +22,8 @@ import {
   type ReservationLite,
   type EmailTemplateContext,
 } from "@/lib/email-templates";
+import { getWhatsAppCredentials, sendWhatsAppTemplate } from "@/lib/whatsapp";
+import { confirmationParams, cancellationParams } from "@/lib/whatsapp-templates";
 
 export type NotificationKind = "confirmed" | "approval_required" | "cancelled";
 
@@ -51,6 +53,7 @@ type ResRow = {
   note: string | null;
   approval_reason: string | null;
   table_id: string | null;
+  whatsapp_consent?: boolean;
 };
 
 const APP_URL =
@@ -104,17 +107,14 @@ async function notify(input: {
   const r = reservation as ResRow | null;
   if (!r) return;
 
-  // Notify-Toggle pruefen
+  // Email-Toggles checken — wenn aus, wird nur WhatsApp evaluiert.
   const notifyCfg = s.notify ?? null;
-  const recipientEmail = notifyCfg?.email?.trim();
-  if (!recipientEmail) return;
-
-  const enabled = (
+  const recipientEmailRaw = notifyCfg?.email?.trim() ?? null;
+  const emailKindEnabled =
     (kind === "confirmed" && notifyCfg?.on_reservation) ||
     (kind === "approval_required" && notifyCfg?.on_approval_required) ||
-    (kind === "cancelled" && notifyCfg?.on_cancel)
-  );
-  if (!enabled) return;
+    (kind === "cancelled" && notifyCfg?.on_cancel);
+  const recipientEmail = recipientEmailRaw && emailKindEnabled ? recipientEmailRaw : null;
 
   // Tisch-Label + Zone optional nachladen
   let tableLabel: string | null = null;
@@ -167,14 +167,78 @@ async function notify(input: {
     kind === "approval_required" ? approvalRequiredTemplate(lite, ctx) :
     cancelledTemplate(lite, ctx);
 
-  await sendEmail({
-    to: recipientEmail,
-    subject: tpl.subject,
-    html: tpl.html,
-    text: tpl.text,
-    tags: [
-      { name: "kind", value: kind },
-      { name: "restaurant_id", value: restaurantId },
-    ],
+  // 1) Team-Mail (Restaurant-Email)
+  if (recipientEmail) {
+    await sendEmail({
+      to: recipientEmail,
+      subject: tpl.subject,
+      html: tpl.html,
+      text: tpl.text,
+      tags: [
+        { name: "kind", value: kind },
+        { name: "restaurant_id", value: restaurantId },
+      ],
+    });
+  }
+
+  // 2) Guest-WhatsApp (an die Telefonnummer des Gasts via Tenant-eigener Nummer)
+  // Nur fuer confirmed + cancelled (approval_required ist team-intern, nicht
+  // an den Gast — der weiss noch gar nicht ob seine Reservierung kommt).
+  if (kind === "confirmed" || kind === "cancelled") {
+    await maybeSendGuestWhatsApp({
+      restaurantId,
+      kind,
+      reservation: r,
+      restaurantName,
+    });
+  }
+}
+
+/**
+ * Versendet die WhatsApp-Bestaetigung/-Storno an den Gast — sofern
+ * Tenant-WhatsApp konfiguriert ist UND die Setting-Toggle erlaubt UND
+ * der Gast eine Telefonnummer hinterlassen hat.
+ */
+async function maybeSendGuestWhatsApp(input: {
+  restaurantId: string;
+  kind: "confirmed" | "cancelled";
+  reservation: ResRow;
+  restaurantName: string;
+}): Promise<void> {
+  const { restaurantId, kind, reservation, restaurantName } = input;
+  if (!reservation.phone) return;        // ohne Phone kein WhatsApp
+
+  // DSGVO-Consent: nur senden wenn der Gast NICHT explizit abgelehnt hat.
+  // Default true (Spalte default in DB). Nur false → kein Versand.
+  if (reservation.whatsapp_consent === false) return;
+
+  const creds = await getWhatsAppCredentials(restaurantId);
+  if (!creds) return;
+  if (kind === "confirmed" && !creds.send_on_confirmed) return;
+  if (kind === "cancelled" && !creds.send_on_cancelled) return;
+
+  const guestData = {
+    guest_name: reservation.guest_name,
+    party_size: reservation.party_size,
+    starts_at: reservation.starts_at,
+    code: reservation.code,
+  };
+  const restaurant = { name: restaurantName };
+
+  const templateName = kind === "confirmed"
+    ? creds.templates.confirmation
+    : creds.templates.cancellation;
+  const params = kind === "confirmed"
+    ? confirmationParams(guestData, restaurant)
+    : cancellationParams(guestData, restaurant);
+
+  const result = await sendWhatsAppTemplate(creds, {
+    to: reservation.phone,
+    template: templateName,
+    parameters: params,
   });
+
+  if (!result.ok && !result.skipped) {
+    console.warn(`[notifications] WhatsApp ${kind} failed:`, result.error);
+  }
 }
