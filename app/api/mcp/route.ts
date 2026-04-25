@@ -59,22 +59,22 @@ const TOOLS = [
   {
     name: "create_reservation",
     description:
-      "Legt eine Reservierung an. NUR aufrufen, nachdem check_availability erfolgreich war (available=true) UND Name/Telefonnummer vom Gast bestätigt sind. Jede erfolgreiche Buchung wird automatisch als 'Bestätigt' angelegt. Gibt 'instruction' zurück (FERTIG / ABSAGEN).\n\nWICHTIG — DSGVO-Consent fuer WhatsApp: Wenn das Restaurant WhatsApp-Bestaetigungen aktiviert hat (kannst du an der instruction erkennen oder pauschal anbieten), frage den Gast wörtlich: 'Möchten Sie eine WhatsApp-Bestätigung an die Nummer von der Sie gerade anrufen?' Wenn der Gast Ja sagt: setze whatsapp_consent=true. Wenn Nein oder unklar: setze false. Default ist true — also nur bei expliziter Ablehnung false setzen.",
+      "Legt eine Reservierung an. NUR aufrufen, nachdem check_availability erfolgreich war (available=true) UND Name + Kontaktdaten vom Gast bestätigt sind.\n\nKONTAKT-FRAGE — Frage den Gast je nachdem WELCHE Bestaetigungs-Kanaele aktiv sind (siehe `notify_channels` aus get_restaurant_context):\n- WhatsApp + Email aktiv: 'Möchten Sie die Bestätigung per WhatsApp oder per E-Mail?' → Gast wählt EINS, du übergibst entweder phone ODER email.\n- nur WhatsApp aktiv: frag nur die Telefonnummer.\n- nur Email aktiv: frag nur die E-Mail-Adresse.\n- weder noch: weder phone noch email noetig.\n\nMINDESTENS phone ODER email muss gesetzt sein wenn ein Kanal aktiv ist. Beide gleichzeitig sind unnoetig — ein Kanal pro Gast reicht.\n\nGibt 'instruction' zurück (FERTIG / ABSAGEN).",
     inputSchema: {
       type: "object",
       properties: {
         guest_name: { type: "string" },
-        phone: { type: "string" },
-        email: { type: "string" },
+        phone: { type: "string", description: "Telefonnummer des Gasts — fuer die WhatsApp-Bestaetigung. Lass leer wenn der Gast Email gewaehlt hat." },
+        email: { type: "string", description: "E-Mail des Gasts — fuer die E-Mail-Bestaetigung. Lass leer wenn der Gast WhatsApp gewaehlt hat." },
         party_size: { type: "integer", minimum: 1, maximum: 40 },
         starts_at: { type: "string" },
         duration_min: { type: "integer", default: 90 },
         zone: { type: "string", enum: ["Innenraum", "Fenster", "Terrasse"] },
         accessible: { type: "boolean" },
         note: { type: "string" },
-        whatsapp_consent: { type: "boolean", description: "DSGVO-Consent: hat der Gast einer WhatsApp-Bestaetigung an seine Telefonnummer zugestimmt? Default true. Bei Ablehnung: false." },
+        whatsapp_consent: { type: "boolean", description: "DSGVO-Consent: hat der Gast einer WhatsApp/Email-Bestaetigung zugestimmt? Default true. Bei expliziter Ablehnung: false." },
       },
-      required: ["guest_name", "party_size", "starts_at", "phone"],
+      required: ["guest_name", "party_size", "starts_at"],
     },
   },
   {
@@ -335,9 +335,20 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
 
     const missing: string[] = [];
     if (!args.guest_name) missing.push("guest_name");
-    if (!args.phone) missing.push("phone");
     if (!Number.isFinite(party) || party <= 0) missing.push("party_size");
     if (!startsRaw) missing.push("starts_at");
+    // Kontakt: phone ODER email — pruefen wir gegen die aktiven Notify-Channels.
+    // Falls weder phone noch email da, AUCH wenn die Restaurants kein Bestaetigungs-
+    // Kanal aktiv hat, akzeptieren wir das (Walk-in-aehnliche Buchung ohne Kontakt).
+    const { data: chSettings } = await admin.from("settings")
+      .select("whatsapp, guest_email")
+      .eq("restaurant_id", restaurantId).maybeSingle();
+    const waActive = !!((chSettings as any)?.whatsapp?.enabled);
+    const emailActive = !!((chSettings as any)?.guest_email?.enabled);
+    const channelExpected = waActive || emailActive;
+    if (channelExpected && !args.phone && !args.email) {
+      missing.push(waActive && emailActive ? "phone_or_email" : (waActive ? "phone" : "email"));
+    }
     if (missing.length) {
       return textContent({
         instruction: `NACHFRAGEN: Es fehlen noch: ${missing.join(", ")}. Frage den Gast gezielt nach den fehlenden Angaben und rufe das Tool dann erneut auf. KEINE Reservierung ohne vollständige Daten.`,
@@ -363,13 +374,22 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
       });
     }
 
-    // Duplicate-check: same phone + same starts_at (±30 min)
-    const { data: dup } = await admin.from("reservations").select("id, guest_name")
+    // Duplicate-check: same contact (phone ODER email) + same starts_at (±30 min)
+    let dupQuery = admin.from("reservations").select("id, guest_name")
       .eq("restaurant_id", restaurantId)
-      .eq("phone", args.phone as string)
       .gte("starts_at", new Date(startsAt.getTime() - 30 * 60_000).toISOString())
       .lte("starts_at", new Date(startsAt.getTime() + 30 * 60_000).toISOString())
       .not("status", "eq", "Storniert");
+    // Wenn phone gegeben → nach phone suchen, sonst nach email
+    if (args.phone) {
+      dupQuery = dupQuery.eq("phone", args.phone as string);
+    } else if (args.email) {
+      dupQuery = dupQuery.eq("email", args.email as string);
+    } else {
+      // Kein Kontakt = kein dedup moeglich (Walk-in-aehnlich, akzeptiert)
+      dupQuery = dupQuery.eq("phone", "__never_match__");
+    }
+    const { data: dup } = await dupQuery;
     if (dup && dup.length > 0) {
       return textContent({
         instruction: `NACHFRAGEN: Für diese Telefonnummer existiert bereits eine Reservierung zu dieser Zeit (${(dup as any)[0].guest_name}). Prüfe mit dem Gast ob das die selbe Reservierung ist. KEINE zweite Reservierung anlegen.`,
@@ -530,9 +550,15 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
   // ==================================================================
   if (name === "get_restaurant_context") {
     const { data } = await admin.from("settings")
-      .select("calendar")
+      .select("calendar, whatsapp, guest_email")
       .eq("restaurant_id", restaurantId).maybeSingle();
     const calendar = ((data as any)?.calendar ?? {}) as CalendarData;
+    const whatsappCfg = (data as any)?.whatsapp ?? null;
+    const guestEmailCfg = (data as any)?.guest_email ?? null;
+    const notifyChannels = {
+      whatsapp: !!(whatsappCfg?.enabled),
+      email: !!(guestEmailCfg?.enabled),
+    };
     const today = todayBerlinISO();
 
     const closureToday = isClosureForDate(calendar, today);
@@ -553,6 +579,18 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
       instruction = "Normalbetrieb heute. Falls der Gast nach besonderen Sachen fragt, gibt es nichts zu erwähnen.";
     }
 
+    // Channel-Hinweis für die Bestätigungs-Frage beim Buchen
+    let channelInstruction: string;
+    if (notifyChannels.whatsapp && notifyChannels.email) {
+      channelInstruction = "Beim Buchen den Gast fragen: 'Möchten Sie die Bestätigung per WhatsApp oder per E-Mail erhalten?' — er wählt EINS. Bei WhatsApp brauchst du seine Telefonnummer, bei E-Mail seine E-Mail-Adresse.";
+    } else if (notifyChannels.whatsapp) {
+      channelInstruction = "Beim Buchen brauchst du die Telefonnummer des Gasts (für die WhatsApp-Bestätigung).";
+    } else if (notifyChannels.email) {
+      channelInstruction = "Beim Buchen brauchst du die E-Mail-Adresse des Gasts (für die Bestätigungs-Mail). Eine Telefonnummer ist nicht nötig.";
+    } else {
+      channelInstruction = "Aktuell ist KEIN Bestätigungs-Kanal aktiv (weder WhatsApp noch E-Mail). Du kannst trotzdem reservieren — frag nur nach Name + Personenzahl + Zeit. Telefonnummer / E-Mail sind optional.";
+    }
+
     return textContent({
       today_date: today,
       is_closed_today: !!closureToday,
@@ -564,7 +602,9 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
       allergens_available: !!getDocumentText(calendar.allergens),
       menu_highlights: calendar.menu_highlights ?? [],
       policies: calendar.policies ?? {},
-      instruction,
+      notify_channels: notifyChannels,
+      channel_instruction: channelInstruction,
+      instruction: `${instruction} ${channelInstruction}`,
     });
   }
 

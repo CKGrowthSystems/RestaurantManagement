@@ -25,13 +25,13 @@ export async function PATCH(request: Request) {
   if (!ctx) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   const body = await request.json();
 
-  // For jsonb columns (branding, notify, whatsapp) we merge with existing
-  // values so that partial updates don't clobber other keys.
+  // For jsonb columns (branding, notify, whatsapp, guest_email) we merge with
+  // existing values so that partial updates don't clobber other keys.
   let existing: any = null;
-  if (body.branding !== undefined || body.notify !== undefined || body.whatsapp !== undefined) {
+  if (body.branding !== undefined || body.notify !== undefined || body.whatsapp !== undefined || body.guest_email !== undefined) {
     const { data } = await ctx.supabase
       .from("settings")
-      .select("branding, notify, whatsapp")
+      .select("branding, notify, whatsapp, guest_email")
       .eq("restaurant_id", ctx.restaurantId)
       .maybeSingle();
     existing = data ?? null;
@@ -60,6 +60,11 @@ export async function PATCH(request: Request) {
       }
       patch.whatsapp = { ...(existing?.whatsapp ?? {}), ...incoming };
     }
+  }
+  if ("guest_email" in body) {
+    patch.guest_email = body.guest_email === null
+      ? null
+      : { ...(existing?.guest_email ?? {}), ...body.guest_email };
   }
   // calendar wird im Ganzen ersetzt (closures/special_hours/announcements sind
   // Listen — der UI-Editor hat immer den vollstaendigen Stand). Damit verhindern

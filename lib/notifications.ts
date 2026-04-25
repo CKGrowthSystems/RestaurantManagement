@@ -26,6 +26,7 @@ import { getWhatsAppCredentials, sendWhatsAppTemplate, normalizePhoneE164 } from
 import { confirmationParams, cancellationParams } from "@/lib/whatsapp-templates";
 import { sendGhlWebhook, parseFirstName, type GhlWebhookPayload } from "@/lib/ghl-webhook";
 import { composeMessage, type MessageVars } from "@/lib/message-vars";
+import { renderGuestEmail } from "@/lib/guest-email-template";
 
 export type NotificationKind = "confirmed" | "approval_required" | "cancelled";
 
@@ -193,7 +194,76 @@ async function notify(input: {
       reservation: r,
       restaurantName,
     });
+
+    // 3) Guest-Email an die hinterlegte Email-Adresse des Gasts.
+    // Laeuft PARALLEL zu WhatsApp — wenn beide Kanaele aktiv und beide
+    // Felder ausgefuellt sind, geht beides raus. In der Praxis hat der
+    // Gast aber nur EINS angegeben (Voice-AI fragt nach EINEM Kanal).
+    await maybeSendGuestEmail({
+      restaurantId,
+      kind,
+      reservation: r,
+      restaurantName,
+      brandingPrimary: branding?.primary_color ?? null,
+    });
   }
+}
+
+async function maybeSendGuestEmail(input: {
+  restaurantId: string;
+  kind: "confirmed" | "cancelled";
+  reservation: ResRow;
+  restaurantName: string;
+  brandingPrimary: string | null;
+}): Promise<void> {
+  const { restaurantId, kind, reservation, restaurantName, brandingPrimary } = input;
+  if (!reservation.email) return;
+  if (reservation.whatsapp_consent === false) return;        // gleicher Consent-Flag
+
+  // Settings laden — guest_email-Feld
+  const admin = createAdminClient();
+  const { data: settings } = await admin.from("settings")
+    .select("guest_email")
+    .eq("restaurant_id", restaurantId)
+    .maybeSingle();
+  const ge = (settings as any)?.guest_email as any;
+  if (!ge?.enabled) return;
+  if (kind === "confirmed" && ge.send_on_confirmed === false) return;
+  if (kind === "cancelled" && ge.send_on_cancelled === false) return;
+
+  const startsAtDate = new Date(reservation.starts_at);
+  const dateHuman = startsAtDate.toLocaleDateString("de-DE", {
+    weekday: "long", day: "numeric", month: "long",
+    timeZone: "Europe/Berlin",
+  });
+  const timeHuman = startsAtDate.toLocaleTimeString("de-DE", {
+    hour: "2-digit", minute: "2-digit",
+    timeZone: "Europe/Berlin",
+  });
+  const guestFirstName = parseFirstName(reservation.guest_name);
+  const vars: MessageVars = {
+    name: guestFirstName,
+    restaurant: restaurantName,
+    code: reservation.code ?? "",
+    date: dateHuman,
+    time: timeHuman,
+    party: reservation.party_size,
+  };
+
+  const tpl = renderGuestEmail(kind, vars, ge.custom_messages, {
+    restaurantName,
+    primaryColor: brandingPrimary,
+  });
+  await sendEmail({
+    to: reservation.email,
+    subject: tpl.subject,
+    html: tpl.html,
+    text: tpl.text,
+    tags: [
+      { name: "kind", value: `guest_${kind}` },
+      { name: "restaurant_id", value: restaurantId },
+    ],
+  });
 }
 
 /**

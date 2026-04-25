@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { HiBtn, HiCard, HiIcon, HiPill, HiTable } from "@/components/primitives";
-import type { Settings, ReleaseMode, Branding, Notify, AppUser, WhatsAppSettings } from "@/lib/types";
+import type { Settings, ReleaseMode, Branding, Notify, AppUser, WhatsAppSettings, GuestEmailSettings } from "@/lib/types";
 
 const DEFAULT_BRANDING: Branding = {
   public_name: null,
@@ -18,6 +18,21 @@ const DEFAULT_NOTIFY: Notify = {
   on_approval_required: true,
   on_cancel: false,
   daily_digest: false,
+};
+
+const DEFAULT_GUEST_EMAIL: GuestEmailSettings = {
+  enabled: false,
+  send_on_confirmed: true,
+  send_on_cancelled: true,
+  send_reminder_hours_before: 24,
+  custom_messages: {
+    confirmed_greeting: "Hallo {name}, vielen Dank für Ihre Reservierung im {restaurant}!",
+    confirmed_closing: "Wir freuen uns auf Sie. Bei Änderungen einfach diese Nummer zurückrufen — Buchungsnr. {code} hilft uns, Sie schnell zu finden.",
+    cancelled_greeting: "Hallo {name},",
+    cancelled_closing: "Wir hoffen, Sie bald wieder bei uns begrüßen zu dürfen!",
+    reminder_greeting: "Hallo {name}, kurze Erinnerung:",
+    reminder_closing: "Bis später!",
+  },
 };
 
 const DEFAULT_WHATSAPP: WhatsAppSettings = {
@@ -53,7 +68,7 @@ const TABS = [
   { id: "hours", label: "Öffnungszeiten" },
   { id: "calendar", label: "Kalender & Inhalte" },
   { id: "notify", label: "Benachrichtigungen" },
-  { id: "whatsapp", label: "WhatsApp an Gäste" },
+  { id: "whatsapp", label: "Gast-Benachrichtigungen" },
   { id: "theme", label: "Branding / Whitelabel" },
 ] as const;
 
@@ -67,6 +82,14 @@ export function SettingsClient({ initial }: { initial: Settings }) {
   const [whatsapp, setWhatsapp] = useState<WhatsAppSettings>(() => {
     const init = (initial as any).whatsapp ?? {};
     return { ...DEFAULT_WHATSAPP, ...init };
+  });
+  const [guestEmail, setGuestEmail] = useState<GuestEmailSettings>(() => {
+    const init = (initial as any).guest_email ?? {};
+    return {
+      ...DEFAULT_GUEST_EMAIL,
+      ...init,
+      custom_messages: { ...DEFAULT_GUEST_EMAIL.custom_messages, ...(init.custom_messages ?? {}) },
+    };
   });
   const [calendar, setCalendar] = useState<any>(initial.calendar ?? {});
   const [saving, setSaving] = useState(false);
@@ -88,6 +111,7 @@ export function SettingsClient({ initial }: { initial: Settings }) {
         branding,
         notify,
         whatsapp: whatsappPayload,
+        guest_email: guestEmail,
         calendar,
       }),
     });
@@ -215,7 +239,12 @@ export function SettingsClient({ initial }: { initial: Settings }) {
           )}
 
           {tab === "whatsapp" && (
-            <WhatsAppTab whatsapp={whatsapp} setWhatsapp={setWhatsapp} />
+            <WhatsAppTab
+              whatsapp={whatsapp}
+              setWhatsapp={setWhatsapp}
+              guestEmail={guestEmail}
+              setGuestEmail={setGuestEmail}
+            />
           )}
 
           {tab === "theme" && (
@@ -1289,10 +1318,12 @@ const smallBtn: React.CSSProperties = {
 const WHATSAPP_ADMIN_PASSWORD = "G4b-br44c";
 
 function WhatsAppTab({
-  whatsapp, setWhatsapp,
+  whatsapp, setWhatsapp, guestEmail, setGuestEmail,
 }: {
   whatsapp: WhatsAppSettings;
   setWhatsapp: (w: WhatsAppSettings) => void;
+  guestEmail: GuestEmailSettings;
+  setGuestEmail: (g: GuestEmailSettings) => void;
 }) {
   const [testPhone, setTestPhone] = useState("");
   const [testStatus, setTestStatus] = useState<{ kind: "idle" | "sending" | "ok" | "err"; msg?: string }>({ kind: "idle" });
@@ -1342,9 +1373,13 @@ function WhatsAppTab({
   return (
     <>
       <Header
-        title="WhatsApp-Bestätigung an Gäste"
-        sub={`Bei Bestätigung/Storno einer Reservierung wird automatisch eine WhatsApp an den Gast gesendet. Empfohlener Weg: über die Demandly-Versandplattform. Alternative: direkt via Meta Cloud API.`}
+        title="Gast-Benachrichtigungen"
+        sub="Schicke deinen Gästen automatisch eine Bestätigung — per WhatsApp oder per E-Mail. Voice-Agent fragt am Telefon nach dem passenden Kontakt je nachdem welcher Kanal hier aktiv ist."
       />
+
+      <div style={{ fontSize: 11, color: "var(--hi-muted)", fontWeight: 600, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10, marginTop: 6 }}>
+        WhatsApp
+      </div>
 
       <HiCard style={{ padding: 20, marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
@@ -1627,6 +1662,76 @@ function WhatsAppTab({
           </div>
         )}
       </HiCard>
+
+      {/* ─────────────────────────────────────────────────────────────────
+          E-Mail an Gäste
+          Separater Section-Block damit man visuell sieht: Email ist
+          sein eigener Kanal mit eigenen Einstellungen.
+          ───────────────────────────────────────────────────────────── */}
+      <div style={{
+        height: 1, background: "var(--hi-line)",
+        margin: "32px 0 20px",
+      }} />
+      <div style={{ fontSize: 11, color: "var(--hi-muted)", fontWeight: 600, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 }}>
+        E-Mail an Gäste
+      </div>
+
+      <HiCard style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)" }}>E-Mail-Versand aktivieren</div>
+            <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginTop: 2 }}>
+              Voice-Agent fragt nach E-Mail wenn dieser Kanal aktiv ist
+            </div>
+          </div>
+          <Toggle on={guestEmail.enabled} onChange={(v) => setGuestEmail({ ...guestEmail, enabled: v })} />
+        </div>
+      </HiCard>
+
+      <HiCard style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 12 }}>
+          Wann soll die E-Mail gesendet werden?
+        </div>
+        <ToggleRow
+          label="Bei bestätigter Reservierung"
+          desc="Direkt nach der Buchung"
+          on={guestEmail.send_on_confirmed}
+          onChange={(v) => setGuestEmail({ ...guestEmail, send_on_confirmed: v })}
+        />
+        <ToggleRow
+          label="Bei Stornierung"
+          desc="Wenn die Reservierung storniert wird"
+          on={guestEmail.send_on_cancelled}
+          onChange={(v) => setGuestEmail({ ...guestEmail, send_on_cancelled: v })}
+        />
+
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--hi-line)" }}>
+          <div style={{ fontSize: 12.5, color: "var(--hi-ink)", fontWeight: 500, marginBottom: 6 }}>
+            Erinnerung vor dem Termin
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {[0, 1, 2, 4, 24].map((h) => (
+              <button
+                key={h}
+                onClick={() => setGuestEmail({ ...guestEmail, send_reminder_hours_before: h })}
+                style={{
+                  padding: "5px 11px", borderRadius: 6, fontSize: 11.5,
+                  border: "1px solid",
+                  borderColor: guestEmail.send_reminder_hours_before === h ? "var(--hi-accent)" : "var(--hi-line)",
+                  background: guestEmail.send_reminder_hours_before === h ? "color-mix(in oklch, var(--hi-accent) 15%, transparent)" : "transparent",
+                  color: guestEmail.send_reminder_hours_before === h ? "var(--hi-accent)" : "var(--hi-muted-strong)",
+                  cursor: "pointer", fontFamily: '"Geist Mono", monospace',
+                }}
+              >
+                {h === 0 ? "Aus" : h === 24 ? "1 Tag vorher" : `${h} h vorher`}
+              </button>
+            ))}
+          </div>
+        </div>
+      </HiCard>
+
+      {/* Email-Custom-Messages (eigene Karte mit eigenen Editoren) */}
+      <GuestEmailMessagesCard guestEmail={guestEmail} setGuestEmail={setGuestEmail} />
     </>
   );
 }
@@ -1784,6 +1889,74 @@ function MessageEditor({
         style={{ ...textInputStyle, resize: "vertical" }}
       />
     </div>
+  );
+}
+
+// ============================================================================
+// GuestEmailMessagesCard — analog zu CustomMessagesCard fuer Email
+// ============================================================================
+
+function GuestEmailMessagesCard({
+  guestEmail,
+  setGuestEmail,
+}: {
+  guestEmail: GuestEmailSettings;
+  setGuestEmail: (g: GuestEmailSettings) => void;
+}) {
+  const cm = guestEmail.custom_messages ?? {};
+
+  function setMsg(key: keyof typeof DEFAULT_MSG, value: string) {
+    setGuestEmail({
+      ...guestEmail,
+      custom_messages: { ...cm, [key]: value },
+    });
+  }
+
+  return (
+    <HiCard style={{ padding: 20, marginBottom: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>
+        E-Mail-Texte
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 16, lineHeight: 1.5 }}>
+        Begrüßung und Abschluss frei formulieren — Termindetails werden automatisch eingefügt.
+        Verfügbare Variablen:{" "}
+        <code style={varCodeStyle}>{"{name}"}</code>{" "}
+        <code style={varCodeStyle}>{"{restaurant}"}</code>{" "}
+        <code style={varCodeStyle}>{"{code}"}</code>{" "}
+        <code style={varCodeStyle}>{"{date}"}</code>{" "}
+        <code style={varCodeStyle}>{"{time}"}</code>{" "}
+        <code style={varCodeStyle}>{"{party}"}</code>
+      </div>
+
+      <MessageEditor
+        title="Bestätigung"
+        kind="confirmed"
+        greeting={cm.confirmed_greeting ?? DEFAULT_MSG.confirmed_greeting}
+        closing={cm.confirmed_closing ?? DEFAULT_MSG.confirmed_closing}
+        fixedPreview={"📅 Donnerstag, 25. April, 19:30 Uhr\n👥 4 Personen\n🔖 Buchungsnummer: 42718"}
+        setGreeting={(v) => setMsg("confirmed_greeting", v)}
+        setClosing={(v) => setMsg("confirmed_closing", v)}
+      />
+      <MessageEditor
+        title="Stornierung"
+        kind="cancelled"
+        greeting={cm.cancelled_greeting ?? DEFAULT_MSG.cancelled_greeting}
+        closing={cm.cancelled_closing ?? DEFAULT_MSG.cancelled_closing}
+        fixedPreview={"Ihre Reservierung am Donnerstag, 25. April um 19:30 Uhr wurde storniert."}
+        setGreeting={(v) => setMsg("cancelled_greeting", v)}
+        setClosing={(v) => setMsg("cancelled_closing", v)}
+      />
+      <MessageEditor
+        title="Erinnerung"
+        kind="reminder"
+        greeting={cm.reminder_greeting ?? DEFAULT_MSG.reminder_greeting}
+        closing={cm.reminder_closing ?? DEFAULT_MSG.reminder_closing}
+        fixedPreview={"📅 Heute um 19:30 Uhr · 👥 4 Personen"}
+        setGreeting={(v) => setMsg("reminder_greeting", v)}
+        setClosing={(v) => setMsg("reminder_closing", v)}
+        last
+      />
+    </HiCard>
   );
 }
 

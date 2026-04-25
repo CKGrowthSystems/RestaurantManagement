@@ -208,6 +208,27 @@ export interface Settings {
    * (access_token) werden in API-Responses redacted.
    */
   whatsapp: WhatsAppSettings | null;
+  /**
+   * Email-an-GAST-Konfiguration (separat von notify.email das ans Team geht).
+   * Voice-AI fragt am Telefon nach E-Mail wenn dieser Kanal aktiv ist.
+   */
+  guest_email: GuestEmailSettings | null;
+}
+
+export interface GuestEmailSettings {
+  enabled: boolean;
+  send_on_confirmed: boolean;
+  send_on_cancelled: boolean;
+  send_reminder_hours_before: number;
+  /** Vom Restaurant editierbare Greeting/Closing — gleiche Struktur wie WhatsApp */
+  custom_messages?: {
+    confirmed_greeting?: string;
+    confirmed_closing?: string;
+    cancelled_greeting?: string;
+    cancelled_closing?: string;
+    reminder_greeting?: string;
+    reminder_closing?: string;
+  };
 }
 
 export interface WhatsAppSettings {
