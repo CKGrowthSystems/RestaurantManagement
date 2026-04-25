@@ -19,9 +19,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Rhodos Tables",
-  description: "Restaurant Table Management · Voice-KI Integration",
-  icons: { icon: "/assets/rhodos-logo.png" },
+  title: { default: "HostSystem", template: "%s · HostSystem" },
+  description: "HostSystem — Voice-AI reservations, live floorplan and table management for restaurants. By CK GrowthSystems.",
+  applicationName: "HostSystem",
+  authors: [{ name: "CK GrowthSystems" }],
+  keywords: ["restaurant", "reservations", "voice-ai", "table management", "hospitality", "saas"],
+  icons: { icon: "/assets/logo.png" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

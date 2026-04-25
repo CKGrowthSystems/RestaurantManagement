@@ -539,7 +539,7 @@ function ThemeTab({ branding, setBranding }: { branding: Branding; setBranding: 
             style={{ marginTop: 2, accentColor: "var(--hi-accent)" }}
           />
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)" }}>„Powered by Rhodos Tables" im Footer</div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)" }}>„Powered by HostSystem" im Footer</div>
             <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginTop: 2 }}>
               Deaktivieren für vollständiges Whitelabel.
             </div>

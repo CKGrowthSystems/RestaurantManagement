@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React, { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/browser";
-import { HiBtn, HiIcon, HiPill, RhodosMark, RhodosWordmark, type IconKind } from "./primitives";
+import { HiBtn, HiIcon, HiPill, BrandMark, BrandWordmark, type IconKind } from "./primitives";
 import { useRealtimeCount } from "@/lib/supabase/realtime";
 
 const SIDEBAR_COLLAPSED_KEY = "rhodos.sidebar.collapsed";
@@ -109,7 +109,7 @@ export function Sidebar({
         justifyContent: collapsed ? "center" : "space-between",
       }}>
         {collapsed ? (
-          <RhodosMark size={32} />
+          <BrandMark size={32} />
         ) : (
           <div style={{ flex: 1, minWidth: 0 }}>
             <EditableWordmark initial={restaurantName} />
@@ -496,7 +496,7 @@ function EditableWordmark({ initial }: { initial: string }) {
         transition: "background 120ms ease",
       }}
     >
-      <RhodosWordmark name={savedValue.toUpperCase()} sub="TABLES" />
+      <BrandWordmark name={savedValue.toUpperCase()} sub="" />
       {hover && (
         <span style={{
           position: "absolute", top: 4, right: 4,

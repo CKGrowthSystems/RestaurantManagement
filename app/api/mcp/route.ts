@@ -415,7 +415,7 @@ export async function POST(request: Request) {
         responses.push(rpcResult(id, {
           protocolVersion: "2024-11-05",
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: "rhodos-tables-mcp", version: "2.0.0-bulletproof" },
+          serverInfo: { name: "hostsystem-mcp", version: "2.0.0-bulletproof" },
         }));
       } else if (method === "notifications/initialized") {
         // no response
@@ -443,7 +443,7 @@ export async function POST(request: Request) {
 export async function GET() {
   return NextResponse.json({
     ok: true,
-    server: "rhodos-tables-mcp",
+    server: "hostsystem-mcp",
     version: "2.0.0-bulletproof",
     tools: TOOLS.map((t) => t.name),
     ...currentDateTimeInfo(),

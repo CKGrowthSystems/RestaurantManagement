@@ -1,5 +1,5 @@
 import React from "react";
-import { RhodosWordmark } from "@/components/primitives";
+import { BrandWordmark } from "@/components/primitives";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -20,18 +20,19 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           borderRight: "1px solid var(--hi-line)",
         }}
       >
-        <RhodosWordmark />
+        <BrandWordmark />
         <div>
           <h2 style={{ fontSize: 30, fontWeight: 600, letterSpacing: -0.5, margin: 0, color: "var(--hi-ink)" }}>
-            Tischverwaltung, die mitdenkt.
+            Reservations that run themselves.
           </h2>
           <p style={{ fontSize: 14, color: "var(--hi-muted-strong)", marginTop: 12, lineHeight: 1.6, maxWidth: 440 }}>
-            Voice-KI beantwortet Anrufe rund um die Uhr, prüft Verfügbarkeit, schlägt den passenden Tisch vor und bucht –
-            alles synchron zum Floorplan. Sie behalten die Hoheit.
+            HostSystem answers your phone 24/7, checks availability, picks the
+            right table and books — all in sync with your floorplan. You keep
+            full control.
           </p>
         </div>
         <div style={{ fontSize: 11, color: "var(--hi-muted)" }}>
-          © Rhodos Tables · Whitelabel SaaS für Restaurants
+          © {new Date().getFullYear()} HostSystem · by CK GrowthSystems
         </div>
       </aside>
       <main

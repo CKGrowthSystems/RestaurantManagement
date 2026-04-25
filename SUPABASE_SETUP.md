@@ -1,4 +1,4 @@
-# Supabase Setup für Rhodos Tables
+# Supabase Setup für HostSystem
 
 ## Was du in Supabase machen musst
 
@@ -75,7 +75,7 @@ select seed_demo_data('<restaurant-id>'::uuid);
 
 Alle 4 AI-Endpoints unter `https://DEINE-DOMAIN/api/v1/voice/*`. Authentifizierung via `X-Webhook-Secret` Header (Wert = `restaurants.webhook_secret` aus Supabase, oder globales `VOICE_WEBHOOK_SECRET` aus `.env.local`).
 
-In Rhodos Tables unter **Voice-KI** gibt es einen „Basis-URL + Secret kopieren"-Button.
+In HostSystem unter **Voice-KI** gibt es einen „Basis-URL + Secret kopieren"-Button.
 
 ### `POST /api/v1/voice/availability`
 Prüft, ob zu einem Zeitpunkt ein passender Tisch frei ist.

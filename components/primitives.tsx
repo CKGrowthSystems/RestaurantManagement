@@ -43,12 +43,27 @@ export function HiIcon({
   return <svg width={size} height={size} viewBox="0 0 24 24" style={{ flexShrink: 0, ...style }}>{paths[kind] ?? paths.grid}</svg>;
 }
 
-export function RhodosMark({ size = 32, style }: { size?: number; style?: React.CSSProperties }) {
-  // Use <img> so any tenant logo (incl. SVG/PNG) loads without remote-optimization setup.
-  return <img src="/assets/rhodos-logo.png" alt="Rhodos" width={size} height={size} style={{ display: "block", objectFit: "contain", ...style }} />;
+/**
+ * BrandMark — der Produkt-Logo-Mark (HostSystem).
+ * Aktuell laedt es eine generische PNG aus /assets. Bei Kunden-Whitelabel
+ * kann das in Zukunft pro Tenant ueberschrieben werden.
+ *
+ * Hinweis: das alte Asset rhodos-logo.png bleibt aus historischen Gruenden
+ * vorhanden — das HostSystem-Logo ueberlagert es spaeter via /assets/logo.png.
+ */
+export function BrandMark({ size = 32, style }: { size?: number; style?: React.CSSProperties }) {
+  return <img src="/assets/logo.png" alt="HostSystem" width={size} height={size} onError={(e) => { (e.target as HTMLImageElement).src = "/assets/rhodos-logo.png"; }} style={{ display: "block", objectFit: "contain", ...style }} />;
 }
 
-export function RhodosWordmark({ name = "RHODOS", sub = "TABLES" }: { name?: string; sub?: string }) {
+/** Backwards-compat Alias — Code-Stellen die noch RhodosMark importieren. */
+export const RhodosMark = BrandMark;
+
+/**
+ * BrandWordmark — Produkt-Branding fuer pre-Tenant Pages (Login, Public).
+ * In der Sidebar nach Login wird stattdessen der Restaurant-Name des
+ * eingeloggten Kunden angezeigt (siehe EditableWordmark in shell.tsx).
+ */
+export function BrandWordmark({ name = "HOSTSYSTEM", sub = "BY CK GROWTHSYSTEMS" }: { name?: string; sub?: string }) {
   // Adaptive sizing: longer names get smaller font + tighter letter-spacing
   // so they still fit in the 232px sidebar without overflowing.
   const len = name.length;
@@ -56,7 +71,7 @@ export function RhodosWordmark({ name = "RHODOS", sub = "TABLES" }: { name?: str
   const letterSpacing = len <= 8 ? 2.5 : len <= 14 ? 1.6 : len <= 20 ? 0.8 : 0.3;
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 10, maxWidth: "100%" }}>
-      <RhodosMark size={32} style={{ flexShrink: 0 }} />
+      <BrandMark size={32} style={{ flexShrink: 0 }} />
       <div style={{ display: "flex", flexDirection: "column", lineHeight: 1, minWidth: 0, flex: 1 }}>
         <span
           title={name}
@@ -68,11 +83,16 @@ export function RhodosWordmark({ name = "RHODOS", sub = "TABLES" }: { name?: str
         >
           {name}
         </span>
-        <span style={{ fontSize: 9, letterSpacing: 3.2, marginTop: 3, color: "var(--hi-muted)", fontWeight: 500 }}>{sub}</span>
+        {sub && (
+          <span style={{ fontSize: 8.5, letterSpacing: 1.8, marginTop: 3, color: "var(--hi-muted)", fontWeight: 500 }}>{sub}</span>
+        )}
       </div>
     </div>
   );
 }
+
+/** Backwards-compat Alias. */
+export const RhodosWordmark = BrandWordmark;
 
 export function HiCard({
   children, style, interactive, ...rest
