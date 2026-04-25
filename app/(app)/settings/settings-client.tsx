@@ -27,7 +27,10 @@ const DEFAULT_WHATSAPP: WhatsAppSettings = {
   business_account_id: null,
   send_on_confirmed: true,
   send_on_cancelled: true,
-  send_reminder_hours_before: 2,
+  // 24h Default weil Vercel-Hobby-Plan nur tägliche Crons erlaubt — der
+  // Reminder-Cron läuft 1x/Tag morgens 06:30 UTC und schickt Reminder
+  // für alle Reservierungen der nächsten 24h. Pro-Plan = Cron alle 15 Min.
+  send_reminder_hours_before: 24,
   templates: {
     confirmation: "booking_confirmation_de",
     cancellation: "booking_cancellation_de",
@@ -1399,7 +1402,7 @@ function WhatsAppTab({
             Erinnerung vor dem Termin
           </div>
           <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 10 }}>
-            Wir schicken automatisch eine Erinnerung — alle 15 Minuten prueft das System welche Reservierungen anstehen.
+            Reminder-Cron läuft täglich morgens um 06:30 UTC und versendet Erinnerungen für alle Reservierungen der nächsten X Stunden. Auf Vercel-Pro: höhere Granularität möglich (alle 15 Min).
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {[0, 1, 2, 4, 24].map((h) => (
