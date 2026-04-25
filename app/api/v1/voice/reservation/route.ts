@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { authenticateWebhook, logWebhook } from "@/lib/voice-auth";
 import { autoAssign } from "@/lib/assignment";
 import { generateUniqueBookingCode } from "@/lib/booking-code";
+import { logVoiceEventAsync } from "@/lib/voice-events";
 import type { Reservation, TableRow, Zone } from "@/lib/types";
 
 /**
@@ -52,15 +53,24 @@ export async function POST(request: Request) {
   }
 
   if (!body.guest_name || !Number.isFinite(party) || party <= 0 || !body.starts_at) {
+    const missing = {
+      guest_name: !body.guest_name,
+      party_size: !Number.isFinite(party) || party <= 0,
+      starts_at: !body.starts_at,
+    };
     const resp = {
       ok: true,
       instruction: "NACHFRAGEN: Es fehlen Pflichtfelder für die Reservierung. Frage den Gast nach Name, Personenzahl und Zeitpunkt. KEINE Reservierung anlegen.",
-      missing: {
-        guest_name: !body.guest_name,
-        party_size: !Number.isFinite(party) || party <= 0,
-        starts_at: !body.starts_at,
-      },
+      missing,
     };
+    logVoiceEventAsync({
+      restaurantId: auth.restaurantId,
+      source: "rest",
+      kind: "warning",
+      tool: "reservation",
+      message: `Reservierungs-Webhook ohne Pflichtfelder (${Object.entries(missing).filter(([, v]) => v).map(([k]) => k).join(", ")})`,
+      details: { missing, body },
+    });
     await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 200, requestBody: body, responseBody: resp, ip });
     return NextResponse.json(resp);
   }
@@ -109,6 +119,19 @@ export async function POST(request: Request) {
 
   if (error || !reservation) {
     const resp = { error: error?.message ?? "Could not create reservation" };
+    logVoiceEventAsync({
+      restaurantId: auth.restaurantId,
+      source: "rest",
+      kind: "error",
+      tool: "reservation",
+      message: `Reservierung konnte nicht angelegt werden: ${error?.message ?? "unbekannter DB-Fehler"}`,
+      details: {
+        guest_name: body.guest_name,
+        party_size: party,
+        starts_at: body.starts_at,
+        db_error: error?.message,
+      },
+    });
     await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 500, requestBody: body, responseBody: resp, ip });
     return NextResponse.json(resp, { status: 500 });
   }

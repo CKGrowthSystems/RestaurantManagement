@@ -15,6 +15,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { authenticateWebhook } from "@/lib/voice-auth";
+import { logVoiceEventAsync } from "@/lib/voice-events";
 import { rankCandidates, autoAssign } from "@/lib/assignment";
 import { parseStartsAt, currentDateTimeInfo } from "@/lib/date-parsing";
 import { phonesMatch } from "@/lib/phone";
@@ -398,6 +399,19 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
     }).select().single();
 
     if (error || !reservation) {
+      logVoiceEventAsync({
+        restaurantId,
+        source: "mcp",
+        kind: "error",
+        tool: "create_reservation",
+        message: `Reservierung konnte nicht gespeichert werden: ${error?.message ?? "unbekannter DB-Fehler"}`,
+        details: {
+          guest_name: args.guest_name,
+          party_size: party,
+          starts_at: startsAt.toISOString(),
+          db_error: error?.message,
+        },
+      });
       return textContent({ instruction: `ABSAGEN: Reservierung konnte nicht gespeichert werden. Gast soll unter 07803 926970 anrufen.` });
     }
 
@@ -603,7 +617,18 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
             .update({ status: "Storniert" })
             .eq("id", target.id)
             .eq("restaurant_id", restaurantId);
-          if (updErr) return textContent({ instruction: `ABSAGEN: Storno fehlgeschlagen (${updErr.message}).` });
+          if (updErr) {
+            logVoiceEventAsync({
+              restaurantId,
+              source: "mcp",
+              kind: "error",
+              tool: "cancel_reservation",
+              message: `Storno fehlgeschlagen: ${updErr.message}`,
+              details: { reservation_id: target.id, code: cleanCode },
+              reservationId: target.id,
+            });
+            return textContent({ instruction: `ABSAGEN: Storno fehlgeschlagen (${updErr.message}).` });
+          }
           const t = new Date(target.starts_at).toLocaleString("de-DE", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
           return textContent({
             cancelled: 1,
@@ -686,6 +711,19 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
       const nearbyList = all.slice(0, 4).map((c) =>
         `${c.guest_name} (${c.party_size}P, ${new Date(c.starts_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" })})`
       ).join(", ");
+      logVoiceEventAsync({
+        restaurantId,
+        source: "mcp",
+        kind: "warning",
+        tool: "cancel_reservation",
+        message: `Storno-Anfrage ohne Treffer (Name: ${searchName || "—"}, Phone: ${searchPhone || "—"}, Zeit: ${parsed.berlinLocal})`,
+        details: {
+          search_name: searchName,
+          search_phone: searchPhone,
+          requested_time: parsed.berlinLocal,
+          nearby_count: all.length,
+        },
+      });
       return textContent({
         instruction: nearbyList
           ? `NACHFRAGEN: Mit Name „${searchName}" und Telefon „${searchPhone}" habe ich keine Reservierung um ${parsed.berlinLocal} gefunden. In dem Zeitfenster habe ich aber: ${nearbyList}. Frag den Gast ob einer davon passt oder ob die Zeit eine andere war.`
@@ -744,6 +782,8 @@ export async function POST(request: Request) {
 
   for (const req of requests) {
     const { id = null, method, params = {} } = req ?? {};
+    let toolName: string | null = null;
+    let toolArgs: unknown = undefined;
     try {
       if (method === "initialize") {
         responses.push(rpcResult(id, {
@@ -759,13 +799,35 @@ export async function POST(request: Request) {
         responses.push(rpcResult(id, { tools: TOOLS }));
       } else if (method === "tools/call") {
         const { name, arguments: args = {} } = params as { name: string; arguments?: Record<string, unknown> };
+        toolName = name; toolArgs = args;
         const result = await callTool(name, args, auth.restaurantId);
         responses.push(rpcResult(id, result));
       } else {
         responses.push(rpcError(id, -32601, `Method not found: ${method}`));
+        logVoiceEventAsync({
+          restaurantId: auth.restaurantId,
+          source: "mcp",
+          kind: "warning",
+          message: `Unbekannte JSON-RPC-Methode: ${method}`,
+          details: { method, params },
+        });
       }
     } catch (err: any) {
-      responses.push(rpcError(id, -32603, err?.message ?? String(err)));
+      const msg = err?.message ?? String(err);
+      responses.push(rpcError(id, -32603, msg));
+      logVoiceEventAsync({
+        restaurantId: auth.restaurantId,
+        source: "mcp",
+        kind: "error",
+        tool: toolName,
+        message: toolName ? `Tool "${toolName}" ist abgestürzt: ${msg}` : `MCP-Fehler: ${msg}`,
+        details: {
+          method,
+          tool: toolName,
+          args: toolArgs,
+          stack: typeof err?.stack === "string" ? err.stack.slice(0, 800) : undefined,
+        },
+      });
     }
   }
 

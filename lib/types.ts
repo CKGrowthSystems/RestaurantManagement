@@ -147,6 +147,22 @@ export interface VoiceCall {
   transcript: { speaker: "AI" | "Guest"; text: string }[];
 }
 
+export type VoiceEventKind = "error" | "warning" | "info";
+export type VoiceEventSource = "mcp" | "rest" | "agent" | "system";
+
+export interface VoiceEvent {
+  id: string;
+  restaurant_id: string;
+  created_at: string;
+  kind: VoiceEventKind;
+  source: VoiceEventSource;
+  tool: string | null;
+  message: string;
+  details: Record<string, unknown> | null;
+  call_id: string | null;
+  reservation_id: string | null;
+}
+
 export interface Branding {
   public_name: string | null;
   primary_color: string | null;

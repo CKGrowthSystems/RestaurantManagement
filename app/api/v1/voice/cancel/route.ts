@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { authenticateWebhook, logWebhook } from "@/lib/voice-auth";
+import { logVoiceEventAsync } from "@/lib/voice-events";
 
 /**
  * POST /api/v1/voice/cancel
@@ -39,10 +40,29 @@ export async function POST(request: Request) {
 
   const { data, error } = await query.select();
   if (error) {
+    logVoiceEventAsync({
+      restaurantId: auth.restaurantId,
+      source: "rest",
+      kind: "error",
+      tool: "cancel",
+      message: `Storno fehlgeschlagen: ${error.message}`,
+      details: { body, db_error: error.message },
+    });
     await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 500, requestBody: body, responseBody: { error: error.message }, ip });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  const resp = { ok: true, cancelled: data?.length ?? 0 };
+  const cancelled = data?.length ?? 0;
+  if (cancelled === 0 && (body.reservation_id || (body.phone && body.starts_at))) {
+    logVoiceEventAsync({
+      restaurantId: auth.restaurantId,
+      source: "rest",
+      kind: "warning",
+      tool: "cancel",
+      message: `Storno-Anfrage ohne Treffer (Phone: ${body.phone ?? "—"}, Zeit: ${body.starts_at ?? body.reservation_id ?? "—"})`,
+      details: { body },
+    });
+  }
+  const resp = { ok: true, cancelled };
   await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 200, requestBody: body, responseBody: resp, ip });
   return NextResponse.json(resp);
 }

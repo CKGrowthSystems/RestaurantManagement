@@ -3,11 +3,12 @@ import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/tenant";
 import { Topbar } from "@/components/shell";
 import { HiCard, HiPill } from "@/components/primitives";
-import type { VoiceCall } from "@/lib/types";
+import type { VoiceCall, VoiceEvent } from "@/lib/types";
 import { CopyWebhookUrl } from "./copy-url";
 import { IntegrationWizard } from "./integration-wizard";
 import { PasswordGate } from "./password-gate";
 import { VoiceCallsLive, VoiceCallsLiveSidebar } from "./voice-calls-live";
+import { VoiceEventsLive } from "./voice-events-live";
 
 export const dynamic = "force-dynamic";
 
@@ -21,15 +22,23 @@ export default async function VoicePage() {
   const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "localhost:3030";
   const baseUrl = `${proto}://${host}`;
 
-  const [{ data: calls }, { data: restaurantRow }] = await Promise.all([
+  const [{ data: calls }, { data: restaurantRow }, { data: events }] = await Promise.all([
     supabase.from("voice_calls").select("*")
       .eq("restaurant_id", restaurantId)
       .order("started_at", { ascending: false })
       .limit(20),
     supabase.from("restaurants").select("webhook_secret, name").eq("id", restaurantId).maybeSingle(),
+    // Voice-Events: letzte 30 Errors/Warnings/Infos. Tabelle existiert ggf.
+    // noch nicht (Migration 0011 nicht eingespielt) — dann ist data=null, wir
+    // nutzen einfach [] und das UI zeigt "Alles ruhig".
+    supabase.from("voice_events").select("*")
+      .eq("restaurant_id", restaurantId)
+      .order("created_at", { ascending: false })
+      .limit(30),
   ]);
 
   const callList = (calls ?? []) as VoiceCall[];
+  const eventList = (events ?? []) as VoiceEvent[];
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const todays = callList.filter((c) => new Date(c.started_at) >= todayStart);
   const converted = todays.filter((c) => c.outcome === "reservation").length;
@@ -107,6 +116,8 @@ export default async function VoicePage() {
               ))}
             </div>
           </HiCard>
+
+          <VoiceEventsLive initial={eventList} restaurantId={restaurantId} />
 
           <VoiceCallsLive initial={callList} restaurantId={restaurantId} />
         </div>
