@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/tenant";
 import { autoAssign } from "@/lib/assignment";
+import { generateUniqueBookingCode } from "@/lib/booking-code";
 import type { Reservation, TableRow, Zone } from "@/lib/types";
 
 export async function POST(request: Request) {
@@ -45,6 +46,8 @@ export async function POST(request: Request) {
     approvalReason = decision.approvalReason;
   }
 
+  const code = await generateUniqueBookingCode(ctx.supabase, ctx.restaurantId);
+
   const { data, error } = await ctx.supabase
     .from("reservations")
     .insert({
@@ -56,11 +59,12 @@ export async function POST(request: Request) {
       party_size: party,
       starts_at: startsAt.toISOString(),
       duration_min: durationMin,
-      source: body.source ?? "Web",
+      source: body.source ?? "Manuell",
       status,
       note: body.note ?? null,
       auto_assigned: autoAssigned,
       approval_reason: approvalReason,
+      code,
     })
     .select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

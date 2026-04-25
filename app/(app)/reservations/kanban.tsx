@@ -323,8 +323,23 @@ export function ReservationsKanban({
                         {label(r.table_id)}
                       </span>
                     </div>
-                    <div style={{ fontSize: 12.5, fontWeight: 500, color: "var(--hi-ink)", lineHeight: 1.3 }}>
-                      {r.guest_name} <span style={{ color: "var(--hi-muted)", fontWeight: 400 }}>· {r.party_size}P</span>
+                    <div style={{ fontSize: 12.5, fontWeight: 500, color: "var(--hi-ink)", lineHeight: 1.3, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span>{r.guest_name} <span style={{ color: "var(--hi-muted)", fontWeight: 400 }}>· {r.party_size}P</span></span>
+                      {r.code && (
+                        <span
+                          className="mono"
+                          title="Buchungsnummer (vom Gast bei Storno-Anrufen verwendbar)"
+                          style={{
+                            fontSize: 10, fontWeight: 600,
+                            padding: "1px 6px", borderRadius: 4,
+                            background: "color-mix(in oklch, var(--hi-accent) 12%, transparent)",
+                            color: "var(--hi-accent)",
+                            border: "1px solid color-mix(in oklch, var(--hi-accent) 30%, var(--hi-line))",
+                          }}
+                        >
+                          #{r.code}
+                        </span>
+                      )}
                     </div>
                     {r.note && (
                       <div style={{ fontSize: 11, color: "var(--hi-muted)", lineHeight: 1.4 }}>{r.note}</div>

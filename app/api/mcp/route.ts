@@ -18,6 +18,7 @@ import { authenticateWebhook } from "@/lib/voice-auth";
 import { rankCandidates, autoAssign } from "@/lib/assignment";
 import { parseStartsAt, currentDateTimeInfo } from "@/lib/date-parsing";
 import { phonesMatch } from "@/lib/phone";
+import { generateUniqueBookingCode } from "@/lib/booking-code";
 import type { Reservation, TableRow, Zone } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -73,11 +74,12 @@ const TOOLS = [
   {
     name: "cancel_reservation",
     description:
-      "Storniert eine bestehende Reservierung. WICHTIG: Frag den Gast IMMER nach dem NAMEN UND der TELEFONNUMMER und dem ursprüngliche Datum/Uhrzeit. Beides zusammen identifiziert die Reservierung eindeutig. Bei mehreren Treffern bekommst du eine NACHFRAGEN-Instruction mit den Optionen — frag den Gast dann nach Personenzahl oder zusätzlichem Detail. reservation_id ist alternativ wenn bekannt.",
+      "Storniert eine bestehende Reservierung. ABLAUF: Frag den Gast ZUERST nach der 5-stelligen BUCHUNGSNUMMER (`code`) — die hat er beim Buchen bekommen. Wenn er sie nicht hat, frag nach NAMEN UND TELEFONNUMMER und ursprünglichem Datum/Uhrzeit. Bei mehreren Treffern bekommst du eine NACHFRAGEN-Instruction mit Optionen.",
     inputSchema: {
       type: "object",
       properties: {
-        reservation_id: { type: "string", description: "Direkte ID, falls bekannt — sonst leer lassen." },
+        code: { type: "string", description: "5-stellige Buchungsnummer (z.B. 42718). Wenn der Gast sie kennt, IMMER zuerst hierueber suchen — am eindeutigsten und schnellsten." },
+        reservation_id: { type: "string", description: "Direkte UUID, falls bekannt." },
         guest_name: { type: "string", description: "Name des Gastes (Vor- oder Nachname reicht für unscharfe Suche)." },
         phone: { type: "string", description: "Telefonnummer — Format egal (mit/ohne +49, mit/ohne Leerzeichen)." },
         starts_at: { type: "string", description: "Datum + Uhrzeit als ISO-8601 mit Zeitzone (z. B. 2026-04-25T21:00:00+02:00) oder natürliche Angabe ('heute 21 Uhr', 'morgen 19:30')." },
@@ -307,6 +309,9 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
       requireAccessible: !!args.accessible,
     });
 
+    // 5-stellige Buchungsnummer generieren (Voice-friendly fuer Storno)
+    const code = await generateUniqueBookingCode(admin, restaurantId);
+
     const { data: reservation, error } = await admin.from("reservations").insert({
       restaurant_id: restaurantId,
       table_id: decision.tableId,
@@ -321,6 +326,7 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
       note: (args.note as string) ?? null,
       auto_assigned: decision.autoAssigned,
       approval_reason: decision.approvalReason,
+      code,
     }).select().single();
 
     if (error || !reservation) {
@@ -330,6 +336,10 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
     const assignedTable = decision.tableId ? ((tables ?? []) as TableRow[]).find((t) => t.id === decision.tableId) : null;
     const zoneName = assignedTable?.zone_id ? (zones ?? []).find((z) => z.id === assignedTable.zone_id)?.name ?? null : null;
 
+    // Buchungsnummer als gesprochene Ziffern fuer das Voice-Modell formatieren
+    // („vier-zwei-sieben-eins-acht" statt „zweiundvierzigtausend siebenhundertachtzehn")
+    const codeSpoken = code ? code.split("").join("-") : null;
+
     let instruction: string;
     if (!assignedTable) {
       instruction = `ABSAGEN: Kein Tisch verfügbar. Reservierung nicht angelegt.`;
@@ -338,10 +348,16 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
       instruction = `NOTIEREN: Reservierung vorgemerkt für ${args.guest_name}, ${party} Personen, ${parsed.berlinLocal}, Bereich ${zoneName ?? "Innenraum"}. Sage dem Gast wörtlich: "Alles klar, ich habe Sie notiert — ein Kollege bestätigt Ihnen das zeitnah, Sie bekommen eine kurze Rückmeldung." KEINE feste Zusage geben.`;
     } else {
       // Normaler Fall: jede erfolgreiche Buchung ist direkt Bestaetigt.
-      instruction = `FERTIG: Reservierung fest für ${args.guest_name}, ${party} Personen, ${parsed.berlinLocal}, Bereich ${zoneName ?? "Innenraum"}. Bestätige: "Perfekt, ich habe Sie fest eingetragen, wir freuen uns auf Sie."`;
+      // Buchungsnummer wird am Ende zum Mitnotieren angesagt.
+      const codeHint = codeSpoken
+        ? ` Sage am Ende wörtlich: "Ihre Buchungsnummer ist ${codeSpoken} — falls Sie umbuchen oder stornieren möchten, einfach die Nummer durchgeben."`
+        : "";
+      instruction = `FERTIG: Reservierung fest für ${args.guest_name}, ${party} Personen, ${parsed.berlinLocal}, Bereich ${zoneName ?? "Innenraum"}. Bestätige: "Perfekt, ich habe Sie fest eingetragen, wir freuen uns auf Sie."${codeHint}`;
     }
     return textContent({
       reservation_id: reservation.id,
+      booking_code: code,
+      booking_code_spoken: codeSpoken,
       status: decision.status,
       requires_approval: decision.status === "Angefragt",
       approval_reason: decision.approvalReason,
@@ -372,7 +388,41 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
   // formatunabhaengig). Bei mehreren Treffern → NACHFRAGEN.
   // ==================================================================
   if (name === "cancel_reservation") {
-    // Fast-Path: direkte ID
+    // Fast-Path 1: Buchungsnummer (Code) — bevorzugt!
+    if (args.code) {
+      const cleanCode = String(args.code).replace(/\D/g, "");
+      if (cleanCode.length >= 4 && cleanCode.length <= 6) {
+        const { data: hits } = await admin.from("reservations")
+          .select("id, guest_name, party_size, starts_at, status, code")
+          .eq("restaurant_id", restaurantId)
+          .eq("code", cleanCode)
+          .not("status", "eq", "Storniert");
+        const target = (hits ?? [])[0];
+        if (target) {
+          const { error: updErr } = await admin.from("reservations")
+            .update({ status: "Storniert" })
+            .eq("id", target.id)
+            .eq("restaurant_id", restaurantId);
+          if (updErr) return textContent({ instruction: `ABSAGEN: Storno fehlgeschlagen (${updErr.message}).` });
+          const t = new Date(target.starts_at).toLocaleString("de-DE", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
+          return textContent({
+            cancelled: 1,
+            cancelled_reservation: { id: target.id, name: target.guest_name, code: target.code, party_size: target.party_size, starts_at: target.starts_at },
+            match_kind: "Buchungsnummer",
+            instruction: `FERTIG: Reservierung Nr. ${target.code} von ${target.guest_name} (${target.party_size} Personen, ${t}) storniert. Sage dem Gast wörtlich: "Hab ich für Sie storniert, kein Problem. Schönen Tag noch."`,
+          });
+        }
+        // Code mitgegeben, aber kein Treffer — KI darf trotzdem auf Name/Telefon-Pfad weiterprobieren wenn Daten da sind
+        if (!args.guest_name && !args.phone) {
+          return textContent({
+            instruction: `NACHFRAGEN: Buchungsnummer „${cleanCode}" finde ich nicht. Frag den Gast nach Namen UND Telefonnummer und Datum/Uhrzeit der Reservierung — dann kann ich noch mal suchen.`,
+          });
+        }
+        // sonst: weiter zum Name/Phone-Pfad unten
+      }
+    }
+
+    // Fast-Path 2: direkte UUID
     if (args.reservation_id) {
       const { data, error } = await admin.from("reservations")
         .update({ status: "Storniert" })

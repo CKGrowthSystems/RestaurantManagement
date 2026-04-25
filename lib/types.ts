@@ -126,6 +126,13 @@ export interface Reservation {
   note: string | null;
   auto_assigned: boolean;
   approval_reason: string | null;
+  /**
+   * Voice-freundliche 5-stellige Buchungsnummer pro Restaurant. Wird vom
+   * Voice-KI-Agent am Ende des Anrufs angesagt und akzeptiert sie als
+   * primaeren Identifier beim Storno-Anruf. Null fuer Walk-Ins und
+   * Reservierungen aus der Zeit vor Migration 0009.
+   */
+  code: string | null;
   created_at: string;
 }
 

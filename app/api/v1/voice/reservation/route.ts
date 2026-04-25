@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { authenticateWebhook, logWebhook } from "@/lib/voice-auth";
 import { autoAssign } from "@/lib/assignment";
+import { generateUniqueBookingCode } from "@/lib/booking-code";
 import type { Reservation, TableRow, Zone } from "@/lib/types";
 
 /**
@@ -84,6 +85,8 @@ export async function POST(request: Request) {
     requireAccessible: !!body.accessible,
   });
 
+  const code = await generateUniqueBookingCode(admin, auth.restaurantId);
+
   const { data: reservation, error } = await admin
     .from("reservations")
     .insert({
@@ -100,6 +103,7 @@ export async function POST(request: Request) {
       note: body.note ?? null,
       auto_assigned: decision.autoAssigned,
       approval_reason: decision.approvalReason,
+      code,
     })
     .select().single();
 
@@ -146,6 +150,8 @@ export async function POST(request: Request) {
   const resp = {
     ok: true,
     reservation_id: reservation.id,
+    booking_code: code,
+    booking_code_spoken: code ? code.split("").join("-") : null,
     status: decision.status,
     assigned_table: assignedTable
       ? { id: assignedTable.id, label: assignedTable.label, zone: zoneName, seats: assignedTable.seats }

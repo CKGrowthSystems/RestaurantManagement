@@ -130,10 +130,12 @@ create table if not exists reservations (
   note            text,
   auto_assigned   boolean not null default false,
   approval_reason text,
+  code            text,
   created_by      uuid references auth.users on delete set null,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
+create unique index if not exists reservations_code_unique on reservations (restaurant_id, code) where code is not null;
 create index if not exists reservations_time_idx   on reservations (restaurant_id, starts_at);
 create index if not exists reservations_table_idx  on reservations (table_id, starts_at);
 create index if not exists reservations_status_idx on reservations (status);
