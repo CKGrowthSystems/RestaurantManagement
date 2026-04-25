@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="180" height="180">
+  <!-- Apple Touch Icon (iOS Home-Screen): 180x180, ohne abgerundete Ecken
+       (iOS rundet selbst). Etwas mehr Padding fuer iOS-Style. -->
+  <rect width="180" height="180" rx="38" fill="#a8732f"/>
+
+  <!-- Skaliertes „H" (geometrisch identisch zum Favicon) -->
+  <rect x="48"  y="42"  width="18" height="96" rx="3" fill="white"/>
+  <rect x="114" y="42"  width="18" height="96" rx="3" fill="white"/>
+  <rect x="48"  y="80"  width="84" height="20" rx="3" fill="white"/>
+
+  <!-- „Live"-Dot — etwas groesser fuer iOS -->
+  <circle cx="143" cy="38" r="14" fill="#7eb87a" stroke="#a8732f" stroke-width="6"/>
+</svg>

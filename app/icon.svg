@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- HostSystem favicon: warmes Akzent-Quadrat mit weissem H + Live-Dot -->
+  <rect width="32" height="32" rx="7" fill="#a8732f"/>
+
+  <!-- „H" gebaut aus drei Rechtecken (skaliert sauber bei 16x16) -->
+  <rect x="9"   y="8"    width="3" height="16" rx="0.6" fill="white"/>
+  <rect x="20"  y="8"    width="3" height="16" rx="0.6" fill="white"/>
+  <rect x="9"   y="14.5" width="14" height="3" rx="0.6" fill="white"/>
+
+  <!-- Kleiner gruener „Live"-Dot oben rechts (signalisiert: Voice-KI ist online) -->
+  <circle cx="25.5" cy="6.5" r="2.6" fill="#7eb87a" stroke="#a8732f" stroke-width="1.2"/>
+</svg>

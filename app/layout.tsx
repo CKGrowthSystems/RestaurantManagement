@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -24,7 +24,12 @@ export const metadata: Metadata = {
   applicationName: "HostSystem",
   authors: [{ name: "CK GrowthSystems" }],
   keywords: ["restaurant", "reservations", "voice-ai", "table management", "hospitality", "saas"],
-  icons: { icon: "/assets/logo.png" },
+  // Favicon + Apple-Icon werden via app/icon.svg + app/apple-icon.svg auto-detected.
+};
+
+export const viewport: Viewport = {
+  // Faerbt iOS Safari Adressleiste / Android Chrome Tab-Strip.
+  themeColor: "#a8732f",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
