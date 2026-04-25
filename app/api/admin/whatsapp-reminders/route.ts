@@ -13,7 +13,8 @@ import { reminderParams } from "@/lib/whatsapp-templates";
  * WhatsApp-Erinnerung an den Gast.
  *
  * Hinweis: Vercel-Hobby-Plan erlaubt nur tägliche Crons. Pro-Plan kann den
- * Cron auf */15 * * * * setzen — dann waeren auch sub-2h-Reminders moeglich.
+ * Cron auf 15-Minuten-Intervalle setzen — dann waeren auch sub-2h-Reminders
+ * moeglich.
  *
  * Wieder-Versand-Schutz: setzt reminder_sent_at auf das Sende-Timestamp,
  * sodass der naechste Cron-Lauf dieselbe Reservierung nicht erneut anfasst.
