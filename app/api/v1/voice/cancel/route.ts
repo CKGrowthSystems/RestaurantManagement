@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { authenticateWebhook, logWebhook } from "@/lib/voice-auth";
 import { logVoiceEventAsync } from "@/lib/voice-events";
+import { readIdempotencyKey, checkIdempotency, storeIdempotency } from "@/lib/idempotency";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 
 /**
  * POST /api/v1/voice/cancel
@@ -19,6 +21,33 @@ export async function POST(request: Request) {
   if ("error" in auth) {
     await logWebhook({ restaurantId: null, endpoint, method: "POST", statusCode: auth.status, requestBody: body, responseBody: { error: auth.error }, ip });
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  // Rate-Limit
+  const rl = await checkRateLimit("voice_rest", auth.restaurantId);
+  const rlResp = rateLimitResponse(rl);
+  if (rlResp) {
+    logVoiceEventAsync({
+      restaurantId: auth.restaurantId,
+      source: "rest",
+      kind: "warning",
+      tool: "cancel",
+      message: `Rate-Limit auf /cancel erreicht: ${rl.currentCount}/${rl.limit} in 60s`,
+      details: { limit: rl.limit, current: rl.currentCount },
+    });
+    await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 429, requestBody: body, responseBody: rlResp.body, ip });
+    return NextResponse.json(rlResp.body, { status: 429, headers: rlResp.headers });
+  }
+
+  const idemKey = readIdempotencyKey(request);
+  if (idemKey) {
+    const cached = await checkIdempotency(auth.restaurantId, idemKey, endpoint);
+    if (cached) {
+      return NextResponse.json(cached.body, {
+        status: cached.status,
+        headers: { "x-idempotent-replay": cached.cached_at },
+      });
+    }
   }
 
   const admin = createAdminClient();
@@ -64,5 +93,11 @@ export async function POST(request: Request) {
   }
   const resp = { ok: true, cancelled };
   await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 200, requestBody: body, responseBody: resp, ip });
+  // Nur erfolgreiche Stornos cachen (cancelled > 0). „Nichts gefunden" sollte
+  // nicht persistent sein — falls die Reservierung nachtraeglich angelegt wird,
+  // soll ein Retry sie storno-en koennen.
+  if (idemKey && cancelled > 0) {
+    await storeIdempotency(auth.restaurantId, idemKey, endpoint, 200, resp);
+  }
   return NextResponse.json(resp);
 }

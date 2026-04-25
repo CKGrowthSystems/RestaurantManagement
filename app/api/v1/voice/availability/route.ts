@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { authenticateWebhook, logWebhook } from "@/lib/voice-auth";
 import { rankCandidates } from "@/lib/assignment";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { logVoiceEventAsync } from "@/lib/voice-events";
 import type { Reservation, TableRow, Zone } from "@/lib/types";
 
 /**
@@ -33,6 +35,21 @@ export async function POST(request: Request) {
   if ("error" in auth) {
     await logWebhook({ restaurantId: null, endpoint, method: "POST", statusCode: auth.status, requestBody: body, responseBody: { error: auth.error }, ip });
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  const rl = await checkRateLimit("voice_rest", auth.restaurantId);
+  const rlResp = rateLimitResponse(rl);
+  if (rlResp) {
+    logVoiceEventAsync({
+      restaurantId: auth.restaurantId,
+      source: "rest",
+      kind: "warning",
+      tool: "availability",
+      message: `Rate-Limit auf /availability erreicht: ${rl.currentCount}/${rl.limit} in 60s`,
+      details: { limit: rl.limit, current: rl.currentCount },
+    });
+    await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 429, requestBody: body, responseBody: rlResp.body, ip });
+    return NextResponse.json(rlResp.body, { status: 429, headers: rlResp.headers });
   }
 
   const party = Number(body.party_size);

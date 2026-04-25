@@ -4,6 +4,8 @@ import { authenticateWebhook, logWebhook } from "@/lib/voice-auth";
 import { autoAssign } from "@/lib/assignment";
 import { generateUniqueBookingCode } from "@/lib/booking-code";
 import { logVoiceEventAsync } from "@/lib/voice-events";
+import { readIdempotencyKey, checkIdempotency, storeIdempotency } from "@/lib/idempotency";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
 import type { Reservation, TableRow, Zone } from "@/lib/types";
 
 /**
@@ -37,6 +39,36 @@ export async function POST(request: Request) {
   if ("error" in auth) {
     await logWebhook({ restaurantId: null, endpoint, method: "POST", statusCode: auth.status, requestBody: body, responseBody: { error: auth.error }, ip });
     return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
+  // Rate-Limit: 60 req/min pro Restaurant auf REST-Voice-Endpoints.
+  const rl = await checkRateLimit("voice_rest", auth.restaurantId);
+  const rlResp = rateLimitResponse(rl);
+  if (rlResp) {
+    logVoiceEventAsync({
+      restaurantId: auth.restaurantId,
+      source: "rest",
+      kind: "warning",
+      tool: "reservation",
+      message: `Rate-Limit auf /reservation erreicht: ${rl.currentCount}/${rl.limit} in 60s`,
+      details: { limit: rl.limit, current: rl.currentCount },
+    });
+    await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 429, requestBody: body, responseBody: rlResp.body, ip });
+    return NextResponse.json(rlResp.body, { status: 429, headers: rlResp.headers });
+  }
+
+  // Idempotency: wenn der Voice-Agent denselben POST mit demselben
+  // Idempotency-Key zweimal sendet (Netz-Retry), liefern wir die gecachte
+  // Antwort statt eine zweite Reservierung anzulegen.
+  const idemKey = readIdempotencyKey(request);
+  if (idemKey) {
+    const cached = await checkIdempotency(auth.restaurantId, idemKey, endpoint);
+    if (cached) {
+      return NextResponse.json(cached.body, {
+        status: cached.status,
+        headers: { "x-idempotent-replay": cached.cached_at },
+      });
+    }
   }
 
   const party = Number(body.party_size);
@@ -185,5 +217,10 @@ export async function POST(request: Request) {
     message: decision.reasonForAI,
   };
   await logWebhook({ restaurantId: auth.restaurantId, endpoint, method: "POST", statusCode: 201, requestBody: body, responseBody: resp, ip });
+  if (idemKey) {
+    // Erfolgreiche Reservierung cachen — Replays bekommen exakt dieselbe Antwort
+    // inklusive booking_code, sodass der Voice-Agent die Nummer korrekt ansagt.
+    await storeIdempotency(auth.restaurantId, idemKey, endpoint, 201, resp);
+  }
   return NextResponse.json(resp, { status: 201 });
 }

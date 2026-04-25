@@ -16,6 +16,8 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { authenticateWebhook } from "@/lib/voice-auth";
 import { logVoiceEventAsync } from "@/lib/voice-events";
+import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit";
+import { captureError } from "@/lib/sentry";
 import { rankCandidates, autoAssign } from "@/lib/assignment";
 import { parseStartsAt, currentDateTimeInfo } from "@/lib/date-parsing";
 import { phonesMatch } from "@/lib/phone";
@@ -774,6 +776,26 @@ export async function POST(request: Request) {
     return NextResponse.json(rpcError(null, -32000, auth.error), { status: auth.status });
   }
 
+  // Rate-Limit: pro Restaurant 120 req/min auf den MCP-Server. Wenn das Limit
+  // ueberschritten wird, antworten wir 429 und loggen das als Warning ins
+  // voice_events-Log — Restaurant sieht im /voice-Fenster sofort dass etwas
+  // ungewoehnlich viel Traffic produziert.
+  const rl = await checkRateLimit("mcp", auth.restaurantId);
+  const rlResp = rateLimitResponse(rl);
+  if (rlResp) {
+    logVoiceEventAsync({
+      restaurantId: auth.restaurantId,
+      source: "mcp",
+      kind: "warning",
+      message: `Rate-Limit erreicht: ${rl.currentCount}/${rl.limit} Requests in 60s — weitere Requests blockiert`,
+      details: { limit: rl.limit, current: rl.currentCount },
+    });
+    return NextResponse.json(
+      { ...rpcError(null, -32029, "Rate limit exceeded"), ...rlResp.body },
+      { status: 429, headers: rlResp.headers },
+    );
+  }
+
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json(rpcError(null, -32700, "Parse error"), { status: 400 }); }
 
@@ -827,6 +849,13 @@ export async function POST(request: Request) {
           args: toolArgs,
           stack: typeof err?.stack === "string" ? err.stack.slice(0, 800) : undefined,
         },
+      });
+      captureError(err, {
+        level: "error",
+        tags: { area: "mcp", tool: toolName ?? "unknown", method: String(method ?? "unknown") },
+        user: { restaurantId: auth.restaurantId },
+        extra: { args: toolArgs },
+        fingerprint: toolName ? ["mcp", toolName] : ["mcp", "exception"],
       });
     }
   }
