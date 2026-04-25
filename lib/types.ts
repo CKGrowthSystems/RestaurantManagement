@@ -168,7 +168,17 @@ export interface Settings {
   restaurant_id: string;
   release_mode: ReleaseMode;
   release_minutes: number;
-  opening_hours: Record<string, { open: string; close: string }>;
+  /**
+   * Oeffnungszeiten pro Wochentag-Key (mo, tu, we, th, fr, sa, su).
+   *
+   * Akzeptiert zwei Formen (backwards-kompatibel):
+   *   - Legacy: { open: "11:00", close: "22:00" }
+   *   - Neu:    [{ open: "11:00", close: "14:00" }, { open: "17:00", close: "22:00" }]
+   *
+   * Ueber lib/opening-hours.ts -> normalizeOpeningSlots() immer in
+   * Slot-Array umwandeln bevor man darauf rechnet.
+   */
+  opening_hours: Record<string, { open: string; close: string } | { open: string; close: string }[]>;
   voice_prompt: string | null;
   branding: Branding | null;
   notify: Notify | null;

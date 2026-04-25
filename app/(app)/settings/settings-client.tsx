@@ -163,26 +163,7 @@ export function SettingsClient({ initial }: { initial: Settings }) {
           )}
 
           {tab === "hours" && (
-            <>
-              <Header title="Öffnungszeiten" sub="Voice-KI antwortet bei Anrufen außerhalb dieser Zeiten automatisch mit 'geschlossen'." />
-              <HiCard style={{ padding: 20, display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
-                {(["mo","tu","we","th","fr","sa","su"] as const).map((d) => {
-                  const labels: Record<string, string> = { mo:"Montag", tu:"Dienstag", we:"Mittwoch", th:"Donnerstag", fr:"Freitag", sa:"Samstag", su:"Sonntag" };
-                  const day = hours[d] ?? { open: "", close: "" };
-                  return (
-                    <div key={d} style={{ display: "grid", gridTemplateColumns: "110px 1fr 1fr", gap: 10, alignItems: "center" }}>
-                      <span style={{ fontSize: 12.5, color: "var(--hi-ink)", fontWeight: 500 }}>{labels[d]}</span>
-                      <input type="time" value={day.open}
-                             onChange={(e) => setHours({ ...hours, [d]: { ...day, open: e.target.value } })}
-                             style={inputStyle}/>
-                      <input type="time" value={day.close}
-                             onChange={(e) => setHours({ ...hours, [d]: { ...day, close: e.target.value } })}
-                             style={inputStyle}/>
-                    </div>
-                  );
-                })}
-              </HiCard>
-            </>
+            <OpeningHoursTab hours={hours} setHours={setHours} />
           )}
 
           {tab === "profile" && (
@@ -246,6 +227,140 @@ const textInputStyle: React.CSSProperties = {
 // ============================================================================
 // Mein Profil
 // ============================================================================
+// ============================================================================
+// Oeffnungszeiten — mit Mehrfach-Slots pro Tag (Mittagspause-fähig)
+// ============================================================================
+
+const DAY_KEYS = ["mo", "tu", "we", "th", "fr", "sa", "su"] as const;
+const DAY_LABELS: Record<string, string> = {
+  mo: "Montag", tu: "Dienstag", we: "Mittwoch", th: "Donnerstag",
+  fr: "Freitag", sa: "Samstag", su: "Sonntag",
+};
+
+type Slot = { open: string; close: string };
+type HoursMap = Record<string, Slot | Slot[]>;
+
+/** Daten lesen — Legacy oder neu, immer als Slot-Array zurueck. */
+function readSlots(value: Slot | Slot[] | undefined): Slot[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (value.open || value.close) return [value];
+  return [];
+}
+
+function OpeningHoursTab({
+  hours, setHours,
+}: { hours: HoursMap; setHours: (h: HoursMap) => void }) {
+  function updateSlots(day: string, slots: Slot[]) {
+    // Leere Slots ausfiltern, sonst bleibt halbeditierter Mist im DB-Wert
+    const cleaned = slots.filter((s) => s.open && s.close);
+    setHours({ ...hours, [day]: cleaned });
+  }
+  function addSlot(day: string) {
+    const existing = readSlots(hours[day]);
+    // Default-Werte: bei erstem Slot 11-22, bei zweitem die Pause-Phase
+    const defaults: Slot = existing.length === 0
+      ? { open: "11:00", close: "14:00" }
+      : { open: "17:00", close: "22:00" };
+    setHours({ ...hours, [day]: [...existing, defaults] });
+  }
+  function removeSlot(day: string, idx: number) {
+    const existing = readSlots(hours[day]);
+    const next = existing.filter((_, i) => i !== idx);
+    setHours({ ...hours, [day]: next });
+  }
+  function updateSlot(day: string, idx: number, patch: Partial<Slot>) {
+    const existing = readSlots(hours[day]);
+    const next = existing.map((s, i) => (i === idx ? { ...s, ...patch } : s));
+    updateSlots(day, next);
+  }
+
+  return (
+    <>
+      <Header
+        title="Öffnungszeiten"
+        sub={`Voice-KI antwortet bei Anrufen außerhalb dieser Zeiten mit "geschlossen". Pro Tag sind bis zu 3 Zeiträume möglich — z. B. 11–14 Uhr und 17–22 Uhr für eine Mittagspause.`}
+      />
+      <HiCard style={{ padding: 22, display: "flex", flexDirection: "column", gap: 14 }}>
+        {DAY_KEYS.map((d) => {
+          const slots = readSlots(hours[d]);
+          const closed = slots.length === 0;
+          return (
+            <div
+              key={d}
+              style={{
+                display: "grid", gridTemplateColumns: "120px 1fr", gap: 14,
+                alignItems: "start",
+                paddingBottom: 12, borderBottom: d === "su" ? "none" : "1px solid var(--hi-line)",
+              }}
+            >
+              <span style={{ fontSize: 13, color: "var(--hi-ink)", fontWeight: 500, paddingTop: 6 }}>
+                {DAY_LABELS[d]}
+              </span>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {closed && (
+                  <div style={{ fontSize: 12, color: "var(--hi-muted)", fontStyle: "italic" }}>
+                    Geschlossen
+                  </div>
+                )}
+                {slots.map((s, i) => (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr auto", gap: 8, alignItems: "center" }}>
+                    <input
+                      type="time"
+                      value={s.open}
+                      onChange={(e) => updateSlot(d, i, { open: e.target.value })}
+                      style={inputStyle}
+                    />
+                    <span style={{ color: "var(--hi-muted)", fontSize: 12 }}>bis</span>
+                    <input
+                      type="time"
+                      value={s.close}
+                      onChange={(e) => updateSlot(d, i, { close: e.target.value })}
+                      style={inputStyle}
+                    />
+                    <button
+                      onClick={() => removeSlot(d, i)}
+                      title="Zeitraum entfernen"
+                      style={{
+                        width: 28, height: 28, borderRadius: 6,
+                        background: "transparent",
+                        border: "1px solid var(--hi-line)",
+                        color: "oklch(0.74 0.16 25)",
+                        cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}
+                    >
+                      <HiIcon kind="trash" size={11} />
+                    </button>
+                  </div>
+                ))}
+                {slots.length < 3 && (
+                  <button
+                    onClick={() => addSlot(d)}
+                    style={{
+                      alignSelf: "flex-start",
+                      padding: "6px 10px", borderRadius: 6,
+                      fontSize: 11.5, fontWeight: 500,
+                      background: "var(--hi-surface-raised)",
+                      border: "1px dashed var(--hi-line)",
+                      color: "var(--hi-muted-strong)",
+                      cursor: "pointer",
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                    }}
+                  >
+                    <HiIcon kind="plus" size={11} />
+                    {slots.length === 0 ? "Öffnungszeit hinzufügen" : "Zweiten Zeitraum hinzufügen (z. B. nach Mittagspause)"}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </HiCard>
+    </>
+  );
+}
+
 function ProfileTab() {
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState<string | null>(null);

@@ -19,6 +19,7 @@ import { rankCandidates, autoAssign } from "@/lib/assignment";
 import { parseStartsAt, currentDateTimeInfo } from "@/lib/date-parsing";
 import { phonesMatch } from "@/lib/phone";
 import { generateUniqueBookingCode } from "@/lib/booking-code";
+import { normalizeOpeningSlots, isOpenAt, formatSlotsHuman, type OpeningSlot } from "@/lib/opening-hours";
 import type { Reservation, TableRow, Zone } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -102,7 +103,10 @@ function textContent(obj: unknown) {
 }
 
 /** Is the given ISO timestamp within opening hours for that weekday, evaluated in Europe/Berlin? */
-function isWithinOpeningHours(d: Date, openingHours: Record<string, { open: string; close: string }> | null): { inside: boolean; weekday: string; dayKey: string; hh: number; mm: number } | null {
+function isWithinOpeningHours(
+  d: Date,
+  openingHours: Record<string, unknown> | null,
+): { inside: boolean; weekday: string; dayKey: string; hh: number; mm: number; slots: OpeningSlot[] } | null {
   if (!openingHours) return null;
   const fmt = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Berlin",
@@ -114,13 +118,9 @@ function isWithinOpeningHours(d: Date, openingHours: Record<string, { open: stri
   const mm = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
   const wdMap: Record<string, string> = { Sun: "su", Mon: "mo", Tue: "tu", Wed: "we", Thu: "th", Fri: "fr", Sat: "sa" };
   const dayKey = wdMap[weekday] ?? "";
-  const day = openingHours[dayKey];
-  if (!day) return { inside: false, weekday, dayKey, hh, mm };
-  const [oh, om] = day.open.split(":").map(Number);
-  const [ch, cm] = day.close.split(":").map(Number);
-  const nowMin = hh * 60 + mm;
-  const inside = nowMin >= oh * 60 + om && nowMin <= ch * 60 + cm;
-  return { inside, weekday, dayKey, hh, mm };
+  const slots = normalizeOpeningSlots(openingHours[dayKey]);
+  if (slots.length === 0) return { inside: false, weekday, dayKey, hh, mm, slots: [] };
+  return { inside: isOpenAt(slots, hh, mm), weekday, dayKey, hh, mm, slots };
 }
 
 async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
@@ -174,9 +174,8 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
     const openingCheck = isWithinOpeningHours(startsAt, opening);
     if (openingCheck && !openingCheck.inside) {
       const dayNamesDe: Record<string, string> = { mo: "Montag", tu: "Dienstag", we: "Mittwoch", th: "Donnerstag", fr: "Freitag", sa: "Samstag", su: "Sonntag" };
-      const hoursToday = opening?.[openingCheck.dayKey];
-      const closedMsg = hoursToday
-        ? `Am ${dayNamesDe[openingCheck.dayKey]} haben wir von ${hoursToday.open} bis ${hoursToday.close} geöffnet.`
+      const closedMsg = openingCheck.slots.length > 0
+        ? `Am ${dayNamesDe[openingCheck.dayKey]} haben wir von ${formatSlotsHuman(openingCheck.slots)} geöffnet.`
         : `Am ${dayNamesDe[openingCheck.dayKey]} ist geschlossen.`;
       return textContent({
         available: false,
@@ -371,14 +370,36 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
   // ==================================================================
   if (name === "get_opening_hours") {
     const { data } = await admin.from("settings").select("opening_hours").eq("restaurant_id", restaurantId).maybeSingle();
-    const hoursData = (data as any)?.opening_hours as Record<string, { open: string; close: string }> | null;
+    const hoursRaw = (data as any)?.opening_hours as Record<string, unknown> | null;
     const days: Record<string, string> = { mo: "Montag", tu: "Dienstag", we: "Mittwoch", th: "Donnerstag", fr: "Freitag", sa: "Samstag", su: "Sonntag" };
-    const dayKey = ["su","mo","tu","we","th","fr","sa"][new Date().getDay()];
-    const todayHours = hoursData?.[dayKey];
-    const instruction = todayHours
-      ? `Heute (${days[dayKey]}) ist von ${todayHours.open} bis ${todayHours.close} geöffnet. Nenne dem Gast nur den für seine Frage relevanten Tag.`
-      : `Heute geschlossen. Dem Gast das höflich mitteilen.`;
-    return textContent({ hours: hoursData, today: days[dayKey], instruction });
+
+    // Berlin-Wochentag (nicht UTC, sonst kommt in der Nacht der falsche Tag raus)
+    const wd = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Berlin", weekday: "short" })
+      .formatToParts(new Date()).find((p) => p.type === "weekday")?.value ?? "";
+    const wdMap: Record<string, string> = { Sun: "su", Mon: "mo", Tue: "tu", Wed: "we", Thu: "th", Fri: "fr", Sat: "sa" };
+    const dayKey = wdMap[wd] ?? "mo";
+
+    const slotsToday = normalizeOpeningSlots(hoursRaw?.[dayKey]);
+    const todayHumanSlots = formatSlotsHuman(slotsToday);
+
+    // Auch alle Tage in normalisierter Form mitliefern, falls die KI nach
+    // einem anderen Tag fragen soll
+    const allNormalised: Record<string, OpeningSlot[]> = {};
+    for (const k of Object.keys(days)) {
+      allNormalised[k] = normalizeOpeningSlots(hoursRaw?.[k]);
+    }
+
+    const instruction = slotsToday.length > 0
+      ? `Heute (${days[dayKey]}) ist von ${todayHumanSlots} geöffnet. Nenne dem Gast nur den für seine Frage relevanten Tag. Falls mehrere Slots: explizit „von X bis Y und von A bis B" sagen — Mittagspause klar machen.`
+      : `Heute (${days[dayKey]}) ist geschlossen. Dem Gast das höflich mitteilen.`;
+
+    return textContent({
+      hours: allNormalised,
+      today: days[dayKey],
+      today_slots: slotsToday,
+      today_human: todayHumanSlots,
+      instruction,
+    });
   }
 
   // ==================================================================
