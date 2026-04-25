@@ -138,9 +138,25 @@ export function autoAssign(opts: Parameters<typeof rankCandidates>[0]): {
     };
   }
 
-  const reason = best.surplus >= 2
-    ? `Größerer Tisch (${best.table.seats} Plätze für ${opts.partySize} Personen) zugewiesen.`
-    : "Tisch außerhalb Wunsch-Bereich zugewiesen.";
+  // Reason fuer den Wirt formulieren — konkret und ohne Jargon.
+  // Drei Faelle:
+  //   1) Tisch ist groesser als noetig (>=2 Plaetze ueber)
+  //   2) Wunsch-Bereich war nicht frei, anderer Bereich zugewiesen
+  //   3) Beide Faelle gleichzeitig
+  const tooBig = best.surplus >= 2;
+  const wrongZone = !!opts.preferredZoneName && best.zoneName && best.zoneName !== opts.preferredZoneName;
+
+  let reason: string;
+  if (tooBig && wrongZone) {
+    reason = `Größerer Tisch in „${best.zoneName}" zugewiesen (Wunsch war „${opts.preferredZoneName}", war voll). ${best.table.seats} Plätze für ${opts.partySize} Personen.`;
+  } else if (tooBig) {
+    reason = `Größerer Tisch zugewiesen — ${best.table.seats} Plätze für ${opts.partySize} Personen.`;
+  } else if (wrongZone) {
+    reason = `Im Wunsch-Bereich „${opts.preferredZoneName}" war nichts frei — Tisch in „${best.zoneName}" zugewiesen.`;
+  } else {
+    reason = "Tisch zugewiesen, kleiner Hinweis-Match.";
+  }
+
   return {
     tableId: best.table.id, status: "Bestätigt", autoAssigned: true, approvalReason: reason,
     reasonForAI: `Tisch ${best.table.label} zugewiesen.`,
