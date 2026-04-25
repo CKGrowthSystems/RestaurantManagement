@@ -79,7 +79,34 @@ body {
   font-family: var(--font-geist), "Geist", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   font-feature-settings: "cv11", "ss01";
   min-height: 100vh;
+
+  /* Soft Copy-Schutz: Body-Inhalt nicht selektierbar.
+     Eingaben (Inputs/Textareas) und Elemente mit Klasse .allow-select
+     bleiben selektierbar — sonst koennen Wirte keine Buchungsnummer,
+     Telefonnummer oder Webhook-URL kopieren wenn sie wirklich muessen. */
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
+
+input, textarea, select,
+[contenteditable="true"],
+.allow-select, .allow-select * {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
+/* Bilder + Logos nicht in den Drag-Buffer ziehen lassen (verhindert Logo-Kopieren) */
+img {
+  -webkit-user-drag: none;
+  user-drag: none;
+  pointer-events: auto;
+}
+img.no-drag { pointer-events: none; }
 button { font-family: inherit; color: inherit; }
 a { color: inherit; text-decoration: none; }
 input, select, textarea { font-family: inherit; color: inherit; }

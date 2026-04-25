@@ -33,7 +33,6 @@ const TABS = [
   { id: "calendar", label: "Kalender & Inhalte" },
   { id: "notify", label: "Benachrichtigungen" },
   { id: "theme", label: "Branding / Whitelabel" },
-  { id: "users", label: "Benutzer & Rollen" },
 ] as const;
 
 export function SettingsClient({ initial }: { initial: Settings }) {
@@ -185,11 +184,7 @@ export function SettingsClient({ initial }: { initial: Settings }) {
             <ThemeTab branding={branding} setBranding={setBranding} />
           )}
 
-          {tab === "users" && (
-            <UsersTab />
-          )}
-
-          {tab !== "profile" && tab !== "users" && (
+          {tab !== "profile" && (
             <div style={{ display: "flex", gap: 10, marginTop: 24, paddingTop: 20, borderTop: "1px solid var(--hi-line)" }}>
               {saved && (
                 <span style={{ fontSize: 12, color: "oklch(0.78 0.12 145)", alignSelf: "center" }}>

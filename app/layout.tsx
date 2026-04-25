@@ -32,8 +32,8 @@ export const viewport: Viewport = {
   themeColor: "#a8732f",
 };
 
-// Wird VOR dem React-Hydration ausgefuehrt — verhindert das „Flash of Wrong
-// Theme" wenn der User Light eingestellt hat und die Seite neu laedt.
+// Wird VOR dem React-Hydration ausgefuehrt — kein „Flash of Wrong Theme"
+// und richtet die Soft-Copy-Schutz-Listener ein bevor der User klicken kann.
 const themeBootstrap = `
 (function () {
   try {
@@ -44,6 +44,19 @@ const themeBootstrap = `
       document.documentElement.setAttribute('data-color-scheme', 'light');
     }
   } catch (e) {}
+
+  // Soft-Copy-Schutz:
+  // - Rechtsklick wird auf Body geblockt, Inputs/Textareas + .allow-select
+  //   Elemente bleiben unangetastet (damit Wirt z.B. Buchungsnummer per
+  //   rechter Maustaste -> Kopieren nehmen kann wenn das Element explizit
+  //   freigegeben ist)
+  // - Strg+P (Drucken) und F12 (DevTools) lassen wir bewusst frei — Drucken
+  //   eines Tagesplans ist legitim, DevTools-Block ist eh wirkungslos
+  document.addEventListener('contextmenu', function (e) {
+    var t = e.target;
+    if (t && t.closest && t.closest('input, textarea, select, [contenteditable], .allow-select')) return;
+    e.preventDefault();
+  });
 })();
 `;
 

@@ -96,27 +96,55 @@ export default async function AnalyticsPage() {
                 Spitze: {dayLabels[days.indexOf(maxDay)]} mit {maxDay} Gästen
               </div>
             </div>
-            <div style={{ padding: "18px 18px 14px", display: "flex", alignItems: "flex-end", gap: 10, height: 220 }}>
-              {days.map((v, i) => {
-                const h = (v / maxDay) * 170;
-                const peak = v === maxDay;
-                return (
-                  <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-                    <span className="mono" style={{ fontSize: 11, color: "var(--hi-ink)", fontWeight: 500 }}>{v}</span>
-                    <div style={{
-                      width: "100%", maxWidth: 50, height: Math.max(6, h),
-                      background: peak
-                        ? "linear-gradient(180deg, var(--hi-accent), color-mix(in oklch, var(--hi-accent) 50%, transparent))"
-                        : "linear-gradient(180deg, rgba(255,255,255,0.15), rgba(255,255,255,0.05))",
-                      border: `1px solid ${peak ? "var(--hi-accent)" : "var(--hi-line)"}`,
-                      borderRadius: "6px 6px 0 0",
-                    }} />
-                    <span style={{ fontSize: 11, color: peak ? "var(--hi-accent)" : "var(--hi-muted)", fontWeight: peak ? 600 : 500 }}>
-                      {dayLabels[i]}
-                    </span>
-                  </div>
-                );
-              })}
+            <div style={{ padding: "16px 18px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+              {/* Balken-Zone: fixe Hoehe, Balken nutzen Prozent davon — koennen
+                  nie ueber den Container hinaus ragen. Value-Label sitzt
+                  innerhalb der Zone direkt ueber dem Balken. */}
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: 160 }}>
+                {days.map((v, i) => {
+                  const peak = v === maxDay;
+                  // 88% damit ueber dem Balken Platz fuer den Value-Text bleibt
+                  const pct = maxDay > 0 ? (v / maxDay) * 88 : 0;
+                  return (
+                    <div key={i} style={{
+                      flex: 1, display: "flex", flexDirection: "column",
+                      alignItems: "center", justifyContent: "flex-end",
+                      height: "100%", gap: 4, minWidth: 0,
+                    }}>
+                      <span className="mono" style={{
+                        fontSize: 11, color: peak ? "var(--hi-accent)" : "var(--hi-muted-strong)",
+                        fontWeight: peak ? 600 : 500,
+                      }}>{v}</span>
+                      <div style={{
+                        width: "100%", maxWidth: 50,
+                        height: `${pct}%`, minHeight: v > 0 ? 4 : 2,
+                        background: peak
+                          ? "linear-gradient(180deg, var(--hi-accent), color-mix(in oklch, var(--hi-accent) 50%, transparent))"
+                          : "linear-gradient(180deg, color-mix(in oklch, var(--hi-ink) 20%, transparent), color-mix(in oklch, var(--hi-ink) 6%, transparent))",
+                        border: `1px solid ${peak ? "var(--hi-accent)" : "var(--hi-line)"}`,
+                        borderRadius: "6px 6px 0 0",
+                      }} />
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Wochentag-Labels in eigener Reihe — ergeben so eine saubere
+                  Trennung zwischen Datenflaeche und Achsenbeschriftung. */}
+              <div style={{ display: "flex", gap: 10 }}>
+                {dayLabels.map((label, i) => {
+                  const peak = days[i] === maxDay;
+                  return (
+                    <div key={i} style={{
+                      flex: 1, textAlign: "center",
+                      fontSize: 11,
+                      color: peak ? "var(--hi-accent)" : "var(--hi-muted)",
+                      fontWeight: peak ? 600 : 500,
+                    }}>
+                      {label}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </HiCard>
 

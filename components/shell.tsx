@@ -416,157 +416,27 @@ export function VoiceBanner({
 }
 
 /**
- * Sidebar-Wordmark mit Inline-Edit.
- * - Klick auf den Titel -> Input erscheint.
- * - Enter / Blur speichert ueber PATCH /api/settings (branding.public_name).
- * - Esc verwirft.
- * - Router-Refresh holt den neuen Wert aus dem Layout auf allen Seiten.
+ * Sidebar-Wordmark — read-only.
+ * Der Restaurant-Name wird ausschliesslich ueber Settings → Branding →
+ * „Oeffentlicher Name" gepflegt. Hier nur Anzeige + Klick fuehrt direkt
+ * in die Branding-Settings, falls der Wirt anpassen will.
  */
 function EditableWordmark({ initial, logoUrl = null }: { initial: string; logoUrl?: string | null }) {
-  const router = useRouter();
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(initial);
-  const [savedValue, setSavedValue] = useState(initial);
-  const [saving, setSaving] = useState(false);
-  const [hover, setHover] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { setValue(initial); setSavedValue(initial); }, [initial]);
-  useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
-
-  async function commit() {
-    const next = value.trim();
-    if (!next || next === savedValue) { setEditing(false); setValue(savedValue); return; }
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/settings", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ branding: { public_name: next } }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const msg = String(body.error ?? `HTTP ${res.status}`);
-        // Typischer Fall: branding-Spalte existiert nicht -> Migration 0005 fehlt
-        if (msg.toLowerCase().includes("column") && msg.toLowerCase().includes("branding")) {
-          throw new Error("DB-Migration 0005 fehlt: settings.branding existiert noch nicht in Supabase. Bitte supabase/migrations/0005_whitelabel_rotation_polygon.sql im SQL-Editor ausfuehren.");
-        }
-        throw new Error(msg);
-      }
-      setSavedValue(next);
-      setEditing(false);
-      router.refresh();
-    } catch (err: any) {
-      setError(err?.message ?? "Speichern fehlgeschlagen");
-      // NICHT zumachen — User soll den Fehler sehen koennen und ggf. erneut versuchen
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (editing) {
-    const dirty = value.trim() !== savedValue && value.trim().length > 0;
-    return (
-      <form
-        onSubmit={(e) => { e.preventDefault(); commit(); }}
-        style={{ display: "flex", flexDirection: "column", gap: 6 }}
-      >
-        <input
-          ref={inputRef}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") { setValue(savedValue); setEditing(false); }
-          }}
-          maxLength={40}
-          style={{
-            width: "100%",
-            padding: "6px 8px",
-            borderRadius: 6,
-            border: `1px solid var(--hi-accent)`,
-            background: "var(--hi-surface-raised)",
-            color: "var(--hi-ink)",
-            fontSize: 13, fontWeight: 600, letterSpacing: 1.5,
-            outline: "none",
-            fontFamily: "inherit",
-          }}
-          placeholder="Restaurantname"
-          disabled={saving}
-        />
-        {error && (
-          <div style={{
-            fontSize: 10.5, lineHeight: 1.35,
-            padding: "5px 7px", borderRadius: 5,
-            background: "color-mix(in oklch, oklch(0.66 0.2 25) 12%, transparent)",
-            color: "oklch(0.82 0.14 25)",
-            border: "1px solid color-mix(in oklch, oklch(0.66 0.2 25) 35%, var(--hi-line))",
-          }}>
-            {error}
-          </div>
-        )}
-        <div style={{ display: "flex", gap: 6 }}>
-          <button
-            type="submit"
-            disabled={saving || !dirty}
-            style={{
-              flex: 1, padding: "5px 8px", borderRadius: 6,
-              fontSize: 11, fontWeight: 600,
-              border: "1px solid var(--hi-accent)",
-              background: dirty ? "var(--hi-accent)" : "color-mix(in oklch, var(--hi-accent) 30%, var(--hi-surface))",
-              color: dirty ? "var(--hi-on-accent)" : "var(--hi-muted)",
-              cursor: dirty && !saving ? "pointer" : "not-allowed",
-              display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4,
-            }}
-          >
-            <HiIcon kind="check" size={11} />
-            {saving ? "…" : "Speichern"}
-          </button>
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => { setValue(savedValue); setEditing(false); }}
-            style={{
-              padding: "5px 8px", borderRadius: 6,
-              fontSize: 11, fontWeight: 500,
-              border: "1px solid var(--hi-line)",
-              background: "transparent",
-              color: "var(--hi-muted-strong)",
-              cursor: "pointer",
-              display: "inline-flex", alignItems: "center", gap: 4,
-            }}
-          >
-            <HiIcon kind="x" size={10} /> Abbrechen
-          </button>
-        </div>
-      </form>
-    );
-  }
-
   return (
-    <div
-      onClick={() => setEditing(true)}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      title="Klick zum Umbenennen"
+    <Link
+      href="/settings"
+      title="Name in den Einstellungen unter Branding ändern"
       style={{
+        textDecoration: "none",
         cursor: "pointer", borderRadius: 7, padding: "2px 6px",
         margin: "-2px -6px",
-        background: hover ? "rgba(255,255,255,0.05)" : "transparent",
-        position: "relative",
+        background: "transparent",
         transition: "background 120ms ease",
+        display: "block",
       }}
+      className="hi-nav-link-bare"
     >
-      <BrandWordmark name={savedValue.toUpperCase()} sub="HOSTSYSTEM" logoSrc={logoUrl} />
-      {hover && (
-        <span style={{
-          position: "absolute", top: 4, right: 4,
-          color: "var(--hi-muted)", display: "inline-flex",
-        }}>
-          <HiIcon kind="edit" size={11} />
-        </span>
-      )}
-    </div>
+      <BrandWordmark name={initial.toUpperCase()} sub="HOSTSYSTEM" logoSrc={logoUrl} />
+    </Link>
   );
 }

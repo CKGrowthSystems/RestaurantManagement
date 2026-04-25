@@ -355,7 +355,7 @@ export function ReservationsKanban({
                       <span>{r.guest_name} <span style={{ color: "var(--hi-muted)", fontWeight: 400 }}>· {r.party_size}P</span></span>
                       {r.code && (
                         <span
-                          className="mono"
+                          className="mono allow-select"
                           title="Buchungsnummer (vom Gast bei Storno-Anrufen verwendbar)"
                           style={{
                             fontSize: 10, fontWeight: 600,

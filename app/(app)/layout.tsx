@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getTenantContext } from "@/lib/tenant";
 import { Sidebar } from "@/components/shell";
+import { AppFooter } from "@/components/footer";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const ctx = await getTenantContext();
@@ -60,7 +61,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         }}
       />
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        {children}
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          {children}
+        </div>
+        <AppFooter />
       </div>
     </div>
   );
