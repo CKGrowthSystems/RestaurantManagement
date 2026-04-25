@@ -50,6 +50,17 @@ export type GhlWebhookPayload = {
   /** Optional weitere Kontext-Felder fuers Template */
   table_label?: string | null;
   zone?: string | null;
+  /**
+   * Vom Restaurant editierbare Begruessung mit eingesetzten Variablen.
+   * Im GHL-Workflow direkt als {{trigger.greeting}} nutzbar.
+   */
+  greeting: string;
+  /** Systemseitig fix gebaute Termindetails (Datum/Tisch/Personen/Code) */
+  details: string;
+  /** Vom Restaurant editierbarer Abschluss mit eingesetzten Variablen */
+  closing: string;
+  /** Komplette Nachricht: greeting + "\n\n" + details + "\n\n" + closing */
+  message: string;
 };
 
 export type GhlSendResult = {

@@ -233,6 +233,27 @@ export interface WhatsAppSettings {
     cancellation: string;
     reminder: string;
   };
+  /**
+   * Vom Restaurant editierbare Begrueßung + Abschluss pro Nachrichtentyp.
+   * Termindetails (Mitte) werden vom System gefuellt — fix damit der Gast
+   * Datum/Tisch/Personen IMMER konsistent sieht.
+   *
+   * Variablen die der Restaurant-Inhaber nutzen kann:
+   *   {name}        → Vorname / „Familie X" des Gasts
+   *   {restaurant}  → Restaurant-Name (Branding-Public-Name)
+   *   {code}        → Buchungsnummer
+   *   {date}        → „Donnerstag, 25. April"
+   *   {time}        → „19:30"
+   *   {party}       → Personenzahl
+   */
+  custom_messages?: {
+    confirmed_greeting?: string;
+    confirmed_closing?: string;
+    cancelled_greeting?: string;
+    cancelled_closing?: string;
+    reminder_greeting?: string;
+    reminder_closing?: string;
+  };
 }
 
 export interface AppUser {

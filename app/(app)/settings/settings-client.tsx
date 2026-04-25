@@ -1560,6 +1560,10 @@ function WhatsAppTab({
         </div>
       </HiCard>
 
+      {/* Eigene Nachrichten-Texte: Restaurant kann Begruessung + Abschluss
+          editieren, Termindetails sind systemseitig fix. Customer-editierbar. */}
+      <CustomMessagesCard whatsapp={whatsapp} setWhatsapp={setWhatsapp} />
+
       {unlocked && provider === "meta" && (
         <HiCard style={{ padding: 20, marginBottom: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Meta Template-Namen</div>
@@ -1624,6 +1628,162 @@ function WhatsAppTab({
         )}
       </HiCard>
     </>
+  );
+}
+
+// ============================================================================
+// CustomMessagesCard — Restaurant editiert Begrueßung + Abschluss
+// pro Nachrichtentyp. Termindetails sind systemseitig fix.
+// ============================================================================
+
+const DEFAULT_MSG = {
+  confirmed_greeting: "Hallo {name}, vielen Dank für Ihre Reservierung im {restaurant}!",
+  confirmed_closing: "Wir freuen uns auf Sie. Bei Änderungen einfach diese Nummer zurückrufen — Buchungsnr. {code} hilft uns, Sie schnell zu finden.",
+  cancelled_greeting: "Hallo {name},",
+  cancelled_closing: "Wir hoffen, Sie bald wieder bei uns begrüßen zu dürfen!",
+  reminder_greeting: "Hallo {name}, kurze Erinnerung:",
+  reminder_closing: "Bis später!",
+};
+
+function CustomMessagesCard({
+  whatsapp,
+  setWhatsapp,
+}: {
+  whatsapp: WhatsAppSettings;
+  setWhatsapp: (w: WhatsAppSettings) => void;
+}) {
+  const cm = whatsapp.custom_messages ?? {};
+
+  function setMsg(key: keyof typeof DEFAULT_MSG, value: string) {
+    setWhatsapp({
+      ...whatsapp,
+      custom_messages: { ...cm, [key]: value },
+    });
+  }
+
+  return (
+    <HiCard style={{ padding: 20, marginBottom: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>
+        Eigene Nachrichten-Texte
+      </div>
+      <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 16, lineHeight: 1.5 }}>
+        Begrüßung und Abschluss können Sie frei formulieren — die Termindetails in der
+        Mitte werden automatisch eingefügt damit der Gast Datum/Zeit/Buchungsnummer
+        immer konsistent sieht. Verfügbare Variablen:{" "}
+        <code style={varCodeStyle}>{"{name}"}</code>{" "}
+        <code style={varCodeStyle}>{"{restaurant}"}</code>{" "}
+        <code style={varCodeStyle}>{"{code}"}</code>{" "}
+        <code style={varCodeStyle}>{"{date}"}</code>{" "}
+        <code style={varCodeStyle}>{"{time}"}</code>{" "}
+        <code style={varCodeStyle}>{"{party}"}</code>
+      </div>
+
+      <MessageEditor
+        title="Bestätigung"
+        kind="confirmed"
+        greeting={cm.confirmed_greeting ?? DEFAULT_MSG.confirmed_greeting}
+        closing={cm.confirmed_closing ?? DEFAULT_MSG.confirmed_closing}
+        fixedPreview={"📅 Donnerstag, 25. April, 19:30 Uhr\n👥 4 Personen\n🔖 Buchungsnummer: 42718"}
+        setGreeting={(v) => setMsg("confirmed_greeting", v)}
+        setClosing={(v) => setMsg("confirmed_closing", v)}
+      />
+      <MessageEditor
+        title="Stornierung"
+        kind="cancelled"
+        greeting={cm.cancelled_greeting ?? DEFAULT_MSG.cancelled_greeting}
+        closing={cm.cancelled_closing ?? DEFAULT_MSG.cancelled_closing}
+        fixedPreview={"Ihre Reservierung am Donnerstag, 25. April um 19:30 Uhr wurde storniert."}
+        setGreeting={(v) => setMsg("cancelled_greeting", v)}
+        setClosing={(v) => setMsg("cancelled_closing", v)}
+      />
+      <MessageEditor
+        title="Erinnerung"
+        kind="reminder"
+        greeting={cm.reminder_greeting ?? DEFAULT_MSG.reminder_greeting}
+        closing={cm.reminder_closing ?? DEFAULT_MSG.reminder_closing}
+        fixedPreview={"📅 Heute um 19:30 Uhr · 👥 4 Personen"}
+        setGreeting={(v) => setMsg("reminder_greeting", v)}
+        setClosing={(v) => setMsg("reminder_closing", v)}
+        last
+      />
+    </HiCard>
+  );
+}
+
+const varCodeStyle: React.CSSProperties = {
+  fontFamily: '"Geist Mono", monospace',
+  fontSize: 10.5,
+  background: "var(--hi-surface-raised)",
+  padding: "1px 5px",
+  borderRadius: 3,
+  border: "1px solid var(--hi-line)",
+};
+
+function MessageEditor({
+  title,
+  greeting,
+  closing,
+  fixedPreview,
+  setGreeting,
+  setClosing,
+  last,
+}: {
+  title: string;
+  kind: "confirmed" | "cancelled" | "reminder";
+  greeting: string;
+  closing: string;
+  fixedPreview: string;
+  setGreeting: (v: string) => void;
+  setClosing: (v: string) => void;
+  last?: boolean;
+}) {
+  return (
+    <div style={{
+      paddingBottom: 14, marginBottom: last ? 0 : 14,
+      borderBottom: last ? "none" : "1px solid var(--hi-line)",
+    }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: "var(--hi-ink)", marginBottom: 8, letterSpacing: 0.2 }}>
+        {title}
+      </div>
+
+      <label style={{ display: "block", fontSize: 11, color: "var(--hi-muted-strong)", marginBottom: 4, fontWeight: 500 }}>
+        Begrüßung
+      </label>
+      <textarea
+        value={greeting}
+        onChange={(e) => setGreeting(e.target.value)}
+        rows={2}
+        className="allow-select"
+        style={{ ...textInputStyle, resize: "vertical", marginBottom: 8 }}
+      />
+
+      <label style={{ display: "block", fontSize: 11, color: "var(--hi-muted)", marginBottom: 4, fontWeight: 500 }}>
+        Termindetails (automatisch · nicht editierbar)
+      </label>
+      <div className="mono" style={{
+        background: "var(--hi-surface)",
+        border: "1px dashed var(--hi-line)",
+        borderRadius: 6,
+        padding: "8px 10px",
+        fontSize: 11.5,
+        color: "var(--hi-muted-strong)",
+        whiteSpace: "pre-wrap",
+        marginBottom: 8,
+      }}>
+        {fixedPreview}
+      </div>
+
+      <label style={{ display: "block", fontSize: 11, color: "var(--hi-muted-strong)", marginBottom: 4, fontWeight: 500 }}>
+        Abschluss
+      </label>
+      <textarea
+        value={closing}
+        onChange={(e) => setClosing(e.target.value)}
+        rows={2}
+        className="allow-select"
+        style={{ ...textInputStyle, resize: "vertical" }}
+      />
+    </div>
   );
 }
 

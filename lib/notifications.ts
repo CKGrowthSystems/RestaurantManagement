@@ -25,6 +25,7 @@ import {
 import { getWhatsAppCredentials, sendWhatsAppTemplate, normalizePhoneE164 } from "@/lib/whatsapp";
 import { confirmationParams, cancellationParams } from "@/lib/whatsapp-templates";
 import { sendGhlWebhook, parseFirstName, type GhlWebhookPayload } from "@/lib/ghl-webhook";
+import { composeMessage, type MessageVars } from "@/lib/message-vars";
 
 export type NotificationKind = "confirmed" | "approval_required" | "cancelled";
 
@@ -236,6 +237,7 @@ async function maybeSendGuestWhatsApp(input: {
       kind,
       reservation,
       restaurantName,
+      customMessages: wa.custom_messages ?? null,
     });
     return;
   }
@@ -282,8 +284,9 @@ async function sendViaGhl(input: {
   kind: "confirmed" | "cancelled";
   reservation: ResRow;
   restaurantName: string;
+  customMessages: any;
 }): Promise<void> {
-  const { webhookUrl, kind, reservation, restaurantName } = input;
+  const { webhookUrl, kind, reservation, restaurantName, customMessages } = input;
   const to = normalizePhoneE164(reservation.phone);
   if (!to) return;
 
@@ -296,13 +299,23 @@ async function sendViaGhl(input: {
     hour: "2-digit", minute: "2-digit",
     timeZone: "Europe/Berlin",
   });
+  const guestFirstName = parseFirstName(reservation.guest_name);
+  const vars: MessageVars = {
+    name: guestFirstName,
+    restaurant: restaurantName,
+    code: reservation.code ?? "",
+    date: dateHuman,
+    time: timeHuman,
+    party: reservation.party_size,
+  };
+  const composed = composeMessage(kind, vars, customMessages);
 
   const payload: GhlWebhookPayload = {
     event: kind,
     channel: "whatsapp",
     to,
     guest_name: reservation.guest_name,
-    guest_first_name: parseFirstName(reservation.guest_name),
+    guest_first_name: guestFirstName,
     party_size: reservation.party_size,
     starts_at: reservation.starts_at,
     date: dateHuman,
@@ -311,6 +324,10 @@ async function sendViaGhl(input: {
     code: reservation.code,
     restaurant_name: restaurantName,
     reservation_id: reservation.id,
+    greeting: composed.greeting,
+    details: composed.details,
+    closing: composed.closing,
+    message: composed.full,
   };
 
   const result = await sendGhlWebhook(webhookUrl, payload);
