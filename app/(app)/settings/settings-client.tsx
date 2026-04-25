@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { HiBtn, HiCard, HiIcon, HiPill, HiTable } from "@/components/primitives";
 import type { Settings, ReleaseMode, Branding, Notify, AppUser } from "@/lib/types";
 
@@ -446,6 +447,7 @@ const COLOR_PRESETS = [
  * settings.branding.logo_url und zeigt sofort eine Vorschau.
  */
 function LogoUploadCard({ branding, setBranding }: { branding: Branding; setBranding: (b: Branding) => void }) {
+  const router = useRouter();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -464,6 +466,9 @@ function LogoUploadCard({ branding, setBranding }: { branding: Branding; setBran
       }
       const data = await res.json();
       setBranding({ ...branding, logo_url: data.logo_url });
+      // Layout neu laden, damit das Logo SOFORT in der Sidebar erscheint
+      // (kein manueller F5 mehr noetig).
+      router.refresh();
     } catch (err: any) {
       setError(err?.message ?? "Upload fehlgeschlagen");
     } finally {
@@ -482,6 +487,7 @@ function LogoUploadCard({ branding, setBranding }: { branding: Branding; setBran
         throw new Error(body.error ?? `HTTP ${res.status}`);
       }
       setBranding({ ...branding, logo_url: null });
+      router.refresh();
     } catch (err: any) {
       setError(err?.message ?? "Entfernen fehlgeschlagen");
     } finally {

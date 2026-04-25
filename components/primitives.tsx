@@ -44,15 +44,58 @@ export function HiIcon({
 }
 
 /**
- * BrandMark — der Produkt-Logo-Mark (HostSystem).
- * Aktuell laedt es eine generische PNG aus /assets. Bei Kunden-Whitelabel
- * kann das in Zukunft pro Tenant ueberschrieben werden.
+ * BrandMark — Logo des aktuellen Tenants (oder HostSystem-Default).
+ * Reihenfolge:
+ *   1. `src` Prop (z.B. tenant.logo_url aus settings.branding)
+ *   2. /assets/rhodos-logo.png (Default-Asset das immer existiert)
  *
- * Hinweis: das alte Asset rhodos-logo.png bleibt aus historischen Gruenden
- * vorhanden — das HostSystem-Logo ueberlagert es spaeter via /assets/logo.png.
+ * Trick gegen Broken-Image-Icon: Wir tracken errors in State und switchen
+ * auf den Fallback. Vor dem Mount rendern wir nur die Fallback-URL,
+ * sodass beim Reload kein 404 + Broken-Icon kurz aufflackern kann.
  */
-export function BrandMark({ size = 32, style }: { size?: number; style?: React.CSSProperties }) {
-  return <img src="/assets/logo.png" alt="HostSystem" width={size} height={size} onError={(e) => { (e.target as HTMLImageElement).src = "/assets/rhodos-logo.png"; }} style={{ display: "block", objectFit: "contain", ...style }} />;
+export function BrandMark({
+  size = 32,
+  src,
+  style,
+}: {
+  size?: number;
+  src?: string | null;
+  style?: React.CSSProperties;
+}) {
+  const FALLBACK = "/assets/rhodos-logo.png";
+  const initialSrc = src && src.length > 0 ? src : FALLBACK;
+  const [currentSrc, setCurrentSrc] = React.useState(initialSrc);
+  const [errored, setErrored] = React.useState(false);
+
+  // Wenn Eltern-Komponente einen neuen src reicht, neu probieren
+  React.useEffect(() => {
+    setCurrentSrc(src && src.length > 0 ? src : FALLBACK);
+    setErrored(false);
+  }, [src]);
+
+  return (
+    <img
+      key={currentSrc}
+      src={currentSrc}
+      alt="Logo"
+      width={size}
+      height={size}
+      onError={() => {
+        if (!errored && currentSrc !== FALLBACK) {
+          setErrored(true);
+          setCurrentSrc(FALLBACK);
+        }
+      }}
+      style={{
+        display: "block",
+        objectFit: "contain",
+        // Verhindert das laesstige Broken-Image-Browser-Icon waehrend Lade-Versuchen
+        // (Browser zeigt sonst je nach Engine ein graues Bilder-Symbol)
+        backgroundColor: "transparent",
+        ...style,
+      }}
+    />
+  );
 }
 
 /** Backwards-compat Alias — Code-Stellen die noch RhodosMark importieren. */
@@ -63,7 +106,16 @@ export const RhodosMark = BrandMark;
  * In der Sidebar nach Login wird stattdessen der Restaurant-Name des
  * eingeloggten Kunden angezeigt (siehe EditableWordmark in shell.tsx).
  */
-export function BrandWordmark({ name = "HOSTSYSTEM", sub = "BY CK GROWTHSYSTEMS" }: { name?: string; sub?: string }) {
+export function BrandWordmark({
+  name = "HOSTSYSTEM",
+  sub = "BY CK GROWTHSYSTEMS",
+  logoSrc = null,
+}: {
+  name?: string;
+  sub?: string;
+  /** Optional Tenant-Logo-URL aus settings.branding.logo_url. */
+  logoSrc?: string | null;
+}) {
   // Adaptive sizing: longer names get smaller font + tighter letter-spacing
   // so they still fit in the 232px sidebar without overflowing.
   const len = name.length;
@@ -71,7 +123,7 @@ export function BrandWordmark({ name = "HOSTSYSTEM", sub = "BY CK GROWTHSYSTEMS"
   const letterSpacing = len <= 8 ? 2.5 : len <= 14 ? 1.6 : len <= 20 ? 0.8 : 0.3;
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 10, maxWidth: "100%" }}>
-      <BrandMark size={32} style={{ flexShrink: 0 }} />
+      <BrandMark size={32} src={logoSrc} style={{ flexShrink: 0 }} />
       <div style={{ display: "flex", flexDirection: "column", lineHeight: 1, minWidth: 0, flex: 1 }}>
         <span
           title={name}

@@ -21,13 +21,15 @@ const NAV: { href: string; id: string; label: string; icon: IconKind }[] = [
 ];
 
 export function Sidebar({
-  displayName, role, restaurantName, badges, restaurantId,
+  displayName, role, restaurantName, badges, restaurantId, logoUrl = null,
 }: {
   displayName: string;
   role: string;
   restaurantName: string;
   badges?: Partial<Record<string, { n: number; tone?: "accent" | "neutral" }>>;
   restaurantId: string;
+  /** Tenant-Logo aus settings.branding.logo_url. Wenn null/leer, wird das Default-Asset gezeigt. */
+  logoUrl?: string | null;
 }) {
   const pathname = usePathname() || "";
   const router = useRouter();
@@ -112,10 +114,10 @@ export function Sidebar({
         marginBottom: 4,
       }}>
         {collapsed ? (
-          <BrandMark size={32} />
+          <BrandMark size={32} src={logoUrl} />
         ) : (
           <div style={{ flex: 1, minWidth: 0, paddingRight: 4 }}>
-            <EditableWordmark initial={restaurantName} />
+            <EditableWordmark initial={restaurantName} logoUrl={logoUrl} />
           </div>
         )}
         <button
@@ -363,7 +365,7 @@ export function VoiceBanner({
  * - Esc verwirft.
  * - Router-Refresh holt den neuen Wert aus dem Layout auf allen Seiten.
  */
-function EditableWordmark({ initial }: { initial: string }) {
+function EditableWordmark({ initial, logoUrl = null }: { initial: string; logoUrl?: string | null }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(initial);
@@ -499,7 +501,7 @@ function EditableWordmark({ initial }: { initial: string }) {
         transition: "background 120ms ease",
       }}
     >
-      <BrandWordmark name={savedValue.toUpperCase()} sub="" />
+      <BrandWordmark name={savedValue.toUpperCase()} sub="" logoSrc={logoUrl} />
       {hover && (
         <span style={{
           position: "absolute", top: 4, right: 4,

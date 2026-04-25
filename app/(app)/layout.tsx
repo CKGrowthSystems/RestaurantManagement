@@ -29,10 +29,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Apply tenant theme via data-theme on <html>.
   const theme = ctx.restaurant?.theme ?? "default";
 
-  const branding = (settingsRes?.data as any)?.branding as { public_name?: string; primary_color?: string; accent_color?: string } | null;
+  const branding = (settingsRes?.data as any)?.branding as { public_name?: string; primary_color?: string; accent_color?: string; logo_url?: string | null } | null;
   const brandingName = branding?.public_name;
   const fallbackName = ctx.restaurant?.name ?? "Rhodos";
   const effectiveName = (brandingName && brandingName.trim()) || fallbackName;
+  const tenantLogoUrl = branding?.logo_url ?? null;
 
   // Branding-Farben als CSS-Variablen-Override (wirkt global, weil
   // var(--hi-accent) an vielen Stellen genutzt wird).
@@ -52,6 +53,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         role={ctx.role}
         restaurantName={effectiveName}
         restaurantId={restaurantId}
+        logoUrl={tenantLogoUrl}
         badges={{
           reservations: { n: openCount ?? 0 },
           voice: { n: voiceCount ?? 0, tone: "accent" },
