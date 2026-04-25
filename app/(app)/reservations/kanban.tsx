@@ -285,22 +285,50 @@ export function ReservationsKanban({
                       cursor: "grab", position: "relative",
                     }}
                   >
-                    <button
-                      title="Reservierung bearbeiten"
-                      onClick={(e) => { e.stopPropagation(); setEditing(r); }}
+                    <div
+                      style={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 4 }}
                       onPointerDown={(e) => e.stopPropagation()}
-                      style={{
-                        position: "absolute", top: 8, right: 8,
-                        width: 24, height: 24, borderRadius: 5,
-                        background: "rgba(255,255,255,0.06)",
-                        border: "1px solid var(--hi-line)",
-                        color: "var(--hi-muted-strong)",
-                        cursor: "pointer",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                      }}
                     >
-                      <HiIcon kind="edit" size={11} />
-                    </button>
+                      {r.status !== "Storniert" && r.status !== "Abgeschlossen" && (
+                        <button
+                          title="Reservierung stornieren"
+                          aria-label="Reservierung stornieren"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const codeHint = r.code ? ` (Buchungsnummer #${r.code})` : "";
+                            if (!confirm(`Reservierung von ${r.guest_name}${codeHint} stornieren?`)) return;
+                            move(r.id, "Storniert");
+                          }}
+                          className="hi-card-action hi-card-action-danger"
+                          style={{
+                            width: 24, height: 24, borderRadius: 5,
+                            background: "rgba(255,255,255,0.06)",
+                            border: "1px solid var(--hi-line)",
+                            color: "oklch(0.74 0.16 25)",
+                            cursor: "pointer",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            transition: "background 120ms ease, border-color 120ms ease",
+                          }}
+                        >
+                          <HiIcon kind="trash" size={11} />
+                        </button>
+                      )}
+                      <button
+                        title="Reservierung bearbeiten"
+                        aria-label="Reservierung bearbeiten"
+                        onClick={(e) => { e.stopPropagation(); setEditing(r); }}
+                        style={{
+                          width: 24, height: 24, borderRadius: 5,
+                          background: "rgba(255,255,255,0.06)",
+                          border: "1px solid var(--hi-line)",
+                          color: "var(--hi-muted-strong)",
+                          cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}
+                      >
+                        <HiIcon kind="edit" size={11} />
+                      </button>
+                    </div>
                     {r.auto_assigned && r.approval_reason && r.status !== "Abgeschlossen" && r.status !== "Storniert" && (
                       <div style={{
                         padding: "4px 8px", borderRadius: 6, fontSize: 10.5,
@@ -312,7 +340,7 @@ export function ReservationsKanban({
                         ⚠︎ {r.approval_reason}
                       </div>
                     )}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, paddingRight: 32 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, paddingRight: 64 }}>
                       <span className="mono" style={{ fontSize: 14, fontWeight: 600, color: "var(--hi-ink)", letterSpacing: -0.3 }}>
                         {new Date(r.starts_at).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" })}
                       </span>

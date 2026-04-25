@@ -122,6 +122,12 @@ table.hi-table tbody tr:hover { background: rgba(255,255,255,0.02); }
   font-weight: 600;
 }
 
+/* Karten-Action-Buttons (Storno/Edit oben rechts auf der Reservierungskarte) */
+.hi-card-action-danger:hover {
+  background: color-mix(in oklch, oklch(0.66 0.2 25) 18%, transparent) !important;
+  border-color: color-mix(in oklch, oklch(0.66 0.2 25) 50%, var(--hi-line)) !important;
+}
+
 /* Floorplan tab header hover */
 .hi-floor-tab {
   transition: background 120ms ease, color 120ms ease;
