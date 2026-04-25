@@ -27,28 +27,44 @@
   --hi-muted: oklch(0.6 0.01 250);
 }
 
-/* Light-Mode: warm-neutral, gut lesbar, dezent kontrastiert */
+/* Light-Mode: warm-neutral, hoher Kontrast (WCAG AA), klare Kanten.
+   Werte orientieren sich an Linear / Stripe Dashboard / Notion Light. */
 :root[data-color-scheme="light"] {
-  --hi-bg: oklch(0.985 0.003 80);
-  --hi-surface: oklch(0.97 0.004 80);
-  --hi-surface-raised: oklch(0.945 0.006 80);
-  --hi-line: oklch(0.88 0.006 80);
-  --hi-line-strong: oklch(0.76 0.008 80);
-  --hi-ink: oklch(0.22 0.012 250);
-  --hi-muted-strong: oklch(0.42 0.012 250);
-  --hi-muted: oklch(0.58 0.012 250);
+  /* Hintergrund: nahezu weiss, Surface leicht gegoennt fuer Karten-Tiefe */
+  --hi-bg: oklch(0.995 0.002 80);
+  --hi-surface: oklch(0.975 0.003 80);
+  --hi-surface-raised: oklch(0.935 0.005 80);
 
-  /* Akzent etwas saturierter, damit auf hellem Bg sichtbar */
-  --hi-accent: oklch(0.62 0.13 65);
+  /* Lines: klar sichtbar, kein Verschwinden gegen weisse Surfaces */
+  --hi-line: oklch(0.83 0.007 80);
+  --hi-line-strong: oklch(0.66 0.01 80);
+
+  /* Text: ink fast schwarz mit minimal blauem Cast (Brille-freundlich) */
+  --hi-ink: oklch(0.18 0.015 250);
+  --hi-muted-strong: oklch(0.36 0.015 250);
+  --hi-muted: oklch(0.52 0.012 250);
+
+  /* Akzent: deutlich dunkler als im Dark-Mode, fuer Lesbarkeit auf Weiss */
+  --hi-accent: oklch(0.55 0.14 65);
   --hi-on-accent: oklch(0.99 0 0);
 
-  /* Status-Farben in Light leicht dunkler, fuer Kontrast auf hellem Bg */
-  --hi-success: oklch(0.55 0.16 145);
-  --hi-warn: oklch(0.62 0.16 70);
-  --hi-danger: oklch(0.58 0.22 25);
-  --hi-info: oklch(0.55 0.15 235);
+  /* Status-Farben: klar gesaettigt + dunkel genug fuer hohen Bg-Kontrast */
+  --hi-success: oklch(0.5 0.17 145);
+  --hi-warn: oklch(0.55 0.18 70);
+  --hi-danger: oklch(0.52 0.23 25);
+  --hi-info: oklch(0.48 0.17 235);
 
   color-scheme: light;
+}
+
+/* Im Light-Mode haben Karten + interaktive Elemente eine subtile Schatten-
+   Tiefe, damit sie gegen den weissen Hintergrund klar abgegrenzt sind. */
+:root[data-color-scheme="light"] .hi-card,
+:root[data-color-scheme="light"] aside {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+:root[data-color-scheme="light"] header.hi-topbar {
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
 }
 
 [data-theme="indigo"]  { --hi-accent: oklch(0.68 0.18 265); --hi-on-accent: oklch(0.98 0 0); }

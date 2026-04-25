@@ -157,11 +157,12 @@ export function BrandWordmark({
 export const RhodosWordmark = BrandWordmark;
 
 export function HiCard({
-  children, style, interactive, ...rest
+  children, style, interactive, className, ...rest
 }: React.HTMLAttributes<HTMLDivElement> & { interactive?: boolean }) {
   return (
     <div
       {...rest}
+      className={["hi-card", className].filter(Boolean).join(" ")}
       style={{
         background: "var(--hi-surface)",
         border: "1px solid var(--hi-line)",
