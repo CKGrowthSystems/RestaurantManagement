@@ -1394,8 +1394,9 @@ function WhatsAppTab({
       </HiCard>
 
       {/* Provider-Sektion — passwortgeschützt. Restaurant sieht nur, dass
-          eine Versand-Quelle konfiguriert ist; aendern darf nur CK-Service. */}
-      {!unlocked && (
+          eine Versand-Quelle konfiguriert ist; aendern darf nur CK-Service.
+          Nur sichtbar wenn der WhatsApp-Kanal aktiviert ist. */}
+      {whatsapp.enabled && !unlocked && (
         <HiCard style={{ padding: 20, marginBottom: 16, background: "var(--hi-surface)" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
             <div>
@@ -1435,8 +1436,8 @@ function WhatsAppTab({
         </HiCard>
       )}
 
-      {/* Provider-Switch — nur sichtbar nach Entsperren */}
-      {unlocked && (
+      {/* Provider-Switch — nur sichtbar wenn aktiviert + nach Entsperren */}
+      {whatsapp.enabled && unlocked && (
         <HiCard style={{ padding: 20, marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)" }}>Versand-Provider</div>
@@ -1491,8 +1492,8 @@ function WhatsAppTab({
         </HiCard>
       )}
 
-      {/* Demandly-Konfig — nur sichtbar nach Entsperren */}
-      {unlocked && provider === "ghl" && (
+      {/* Demandly-Konfig — nur sichtbar wenn aktiviert + nach Entsperren */}
+      {whatsapp.enabled && unlocked && provider === "ghl" && (
         <HiCard style={{ padding: 20, marginBottom: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 14 }}>Demandly-Webhook</div>
           <Field label="Webhook-URL">
@@ -1507,8 +1508,8 @@ function WhatsAppTab({
         </HiCard>
       )}
 
-      {/* Meta-Konfig — nur sichtbar nach Entsperren */}
-      {unlocked && provider === "meta" && (
+      {/* Meta-Konfig — nur sichtbar wenn aktiviert + nach Entsperren */}
+      {whatsapp.enabled && unlocked && provider === "meta" && (
         <HiCard style={{ padding: 20, marginBottom: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 14 }}>Meta-Credentials</div>
 
@@ -1550,6 +1551,7 @@ function WhatsAppTab({
         </HiCard>
       )}
 
+      {whatsapp.enabled && (
       <HiCard style={{ padding: 20, marginBottom: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 12 }}>
           Wann soll WhatsApp gesendet werden?
@@ -1594,12 +1596,16 @@ function WhatsAppTab({
           </div>
         </div>
       </HiCard>
+      )}
 
       {/* Eigene Nachrichten-Texte: Restaurant kann Begruessung + Abschluss
-          editieren, Termindetails sind systemseitig fix. Customer-editierbar. */}
-      <CustomMessagesCard whatsapp={whatsapp} setWhatsapp={setWhatsapp} />
+          editieren, Termindetails sind systemseitig fix. Customer-editierbar.
+          Nur sichtbar wenn WhatsApp-Kanal aktiviert ist. */}
+      {whatsapp.enabled && (
+        <CustomMessagesCard whatsapp={whatsapp} setWhatsapp={setWhatsapp} />
+      )}
 
-      {unlocked && provider === "meta" && (
+      {whatsapp.enabled && unlocked && provider === "meta" && (
         <HiCard style={{ padding: 20, marginBottom: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Meta Template-Namen</div>
           <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14, lineHeight: 1.5 }}>
@@ -1633,35 +1639,37 @@ function WhatsAppTab({
         </HiCard>
       )}
 
-      <HiCard style={{ padding: 20 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Test-Versand</div>
-        <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14 }}>
-          Sendet eine Test-Bestätigung an die Nummer unten. Vorher in Settings speichern!
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            type="tel"
-            value={testPhone}
-            onChange={(e) => setTestPhone(e.target.value)}
-            placeholder="z.B. +49 151 12345678"
-            className="allow-select"
-            style={{ ...textInputStyle, flex: 1 }}
-          />
-          <HiBtn kind="outline" size="md" onClick={testSend} disabled={testStatus.kind === "sending" || !whatsapp.enabled}>
-            {testStatus.kind === "sending" ? "Sende…" : "Test senden"}
-          </HiBtn>
-        </div>
-        {testStatus.kind === "ok" && (
-          <div style={{ marginTop: 10, fontSize: 12, color: "oklch(0.78 0.12 145)" }}>
-            ✓ {testStatus.msg}
+      {whatsapp.enabled && (
+        <HiCard style={{ padding: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Test-Versand</div>
+          <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14 }}>
+            Sendet eine Test-Bestätigung an die Nummer unten. Vorher in Settings speichern!
           </div>
-        )}
-        {testStatus.kind === "err" && (
-          <div style={{ marginTop: 10, fontSize: 12, color: "oklch(0.7 0.18 25)" }}>
-            ✗ {testStatus.msg}
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              type="tel"
+              value={testPhone}
+              onChange={(e) => setTestPhone(e.target.value)}
+              placeholder="z.B. +49 151 12345678"
+              className="allow-select"
+              style={{ ...textInputStyle, flex: 1 }}
+            />
+            <HiBtn kind="outline" size="md" onClick={testSend} disabled={testStatus.kind === "sending" || !whatsapp.enabled}>
+              {testStatus.kind === "sending" ? "Sende…" : "Test senden"}
+            </HiBtn>
           </div>
-        )}
-      </HiCard>
+          {testStatus.kind === "ok" && (
+            <div style={{ marginTop: 10, fontSize: 12, color: "oklch(0.78 0.12 145)" }}>
+              ✓ {testStatus.msg}
+            </div>
+          )}
+          {testStatus.kind === "err" && (
+            <div style={{ marginTop: 10, fontSize: 12, color: "oklch(0.7 0.18 25)" }}>
+              ✗ {testStatus.msg}
+            </div>
+          )}
+        </HiCard>
+      )}
 
       {/* ─────────────────────────────────────────────────────────────────
           E-Mail an Gäste
@@ -1688,6 +1696,7 @@ function WhatsAppTab({
         </div>
       </HiCard>
 
+      {guestEmail.enabled && (
       <HiCard style={{ padding: 20, marginBottom: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 12 }}>
           Wann soll die E-Mail gesendet werden?
@@ -1729,9 +1738,12 @@ function WhatsAppTab({
           </div>
         </div>
       </HiCard>
+      )}
 
       {/* Email-Custom-Messages (eigene Karte mit eigenen Editoren) */}
-      <GuestEmailMessagesCard guestEmail={guestEmail} setGuestEmail={setGuestEmail} />
+      {guestEmail.enabled && (
+        <GuestEmailMessagesCard guestEmail={guestEmail} setGuestEmail={setGuestEmail} />
+      )}
     </>
   );
 }
