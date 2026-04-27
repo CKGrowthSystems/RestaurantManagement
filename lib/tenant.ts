@@ -10,7 +10,12 @@ export interface TenantContext {
   restaurantId: string;
   role: "owner" | "manager" | "staff";
   displayName: string;
-  restaurant: { name: string; theme: string; logo_url: string | null };
+  restaurant: {
+    name: string;
+    theme: string;
+    logo_url: string | null;
+    onboarding_completed_at: string | null;
+  };
 }
 
 /**
@@ -30,7 +35,10 @@ export const getTenantContext = cache(async (): Promise<TenantContext | null> =>
       restaurantId: DEMO_RESTAURANT_ID,
       role: "owner",
       displayName: "Giorgos A.",
-      restaurant: { name: "Rhodos Ohlsbach", theme: "default", logo_url: null },
+      restaurant: {
+        name: "Rhodos Ohlsbach", theme: "default", logo_url: null,
+        onboarding_completed_at: new Date().toISOString(),
+      },
     };
   }
 
@@ -40,14 +48,17 @@ export const getTenantContext = cache(async (): Promise<TenantContext | null> =>
 
   const { data: membership } = await supabase
     .from("memberships")
-    .select("restaurant_id, role, display_name, restaurants(name, theme, logo_url)")
+    .select("restaurant_id, role, display_name, restaurants(name, theme, logo_url, onboarding_completed_at)")
     .eq("user_id", user.id)
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
   if (!membership) return null;
 
-  const restaurant = (membership.restaurants ?? {}) as { name: string; theme: string; logo_url: string | null };
+  const restaurant = (membership.restaurants ?? {}) as {
+    name: string; theme: string; logo_url: string | null;
+    onboarding_completed_at: string | null;
+  };
 
   return {
     supabase,

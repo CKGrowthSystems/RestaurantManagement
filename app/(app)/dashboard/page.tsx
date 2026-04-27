@@ -20,6 +20,10 @@ function minsUntil(iso: string) {
 export default async function DashboardPage() {
   const ctx = await getTenantContext();
   if (!ctx) redirect("/login");
+  // Erstes Login eines neuen Tenants → Setup-Wizard zeigen, statt leeres Dashboard.
+  // Sobald Wizard durch ist, setzt /api/onboarding/complete den Timestamp und
+  // wir laufen normal durch.
+  if (!ctx.restaurant.onboarding_completed_at) redirect("/welcome");
   const { supabase, restaurantId, displayName } = ctx;
 
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
