@@ -27,6 +27,10 @@ const WEBHOOK_LOG_TTL_DAYS = 30;
 const VOICE_EVENTS_TTL_DAYS = 90;
 const IDEMPOTENCY_TTL_HOURS = 24;
 const RATE_LIMIT_TTL_HOURS = 1;
+// Voice-Calls behalten wir fuer Statistik-Zwecke FOREVER, aber wir
+// anonymisieren nach 90 Tagen die personen-bezogenen Felder (transcript,
+// phone, raw_payload). Outcome + Dauer + Zeit bleiben fuer Reporting.
+const VOICE_CALL_PII_ANONYMIZE_AFTER_DAYS = 90;
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -54,6 +58,7 @@ export async function GET(request: Request) {
   const idempotencyCutoff = new Date(now - IDEMPOTENCY_TTL_HOURS * 3600_000).toISOString();
   // Rate-Limit-Buckets: alle Eintraege in bucket_minute < now-60min sind tot
   const rateLimitCutoff = Math.floor(Date.now() / 60_000) - 60 * RATE_LIMIT_TTL_HOURS;
+  const voiceCallPiiCutoff = new Date(now - VOICE_CALL_PII_ANONYMIZE_AFTER_DAYS * 86_400_000).toISOString();
 
   // Wir nutzen .lt() (strictly less than) — die exakte Cutoff-Zeile soll
   // erhalten bleiben falls genau eine Zeile auf der Grenze liegt.
@@ -62,6 +67,7 @@ export async function GET(request: Request) {
     { count: eventsDeleted, error: eventsErr },
     { count: idempotencyDeleted, error: idempotencyErr },
     { count: rateLimitDeleted, error: rateLimitErr },
+    { count: voiceCallsAnonymized, error: voiceCallErr },
   ] = await Promise.all([
     admin.from("webhook_log")
       .delete({ count: "exact" })
@@ -75,6 +81,12 @@ export async function GET(request: Request) {
     admin.from("rate_limit_buckets")
       .delete({ count: "exact" })
       .lt("bucket_minute", rateLimitCutoff),
+    // DSGVO: PII aus alten Voice-Calls entfernen — Outcome/Dauer/Zeitstempel
+    // bleiben fuer Reporting, nur transcript/phone/raw_payload werden geleert.
+    admin.from("voice_calls")
+      .update({ transcript: [], phone: null, raw_payload: null }, { count: "exact" })
+      .lt("started_at", voiceCallPiiCutoff)
+      .not("phone", "is", null),
   ]);
 
   const result = {
@@ -105,6 +117,12 @@ export async function GET(request: Request) {
       cutoff_minute: rateLimitCutoff,
       ttl_hours: RATE_LIMIT_TTL_HOURS,
       error: rateLimitErr?.message ?? null,
+    },
+    voice_calls_anonymized: {
+      anonymized: voiceCallsAnonymized ?? 0,
+      cutoff: voiceCallPiiCutoff,
+      ttl_days: VOICE_CALL_PII_ANONYMIZE_AFTER_DAYS,
+      error: voiceCallErr?.message ?? null,
     },
   };
 

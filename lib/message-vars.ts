@@ -54,10 +54,11 @@ export const DEFAULT_CUSTOM_MESSAGES = {
  * immer gleich aussehen, egal welcher Tenant.
  */
 export function buildFixedDetails(
-  kind: "confirmed" | "cancelled" | "reminder",
+  kind: "confirmed" | "cancelled" | "reminder" | "rescheduled",
   vars: MessageVars,
 ): string {
-  if (kind === "confirmed") {
+  if (kind === "confirmed" || kind === "rescheduled") {
+    // rescheduled = neuer Termin bestaetigt, Layout identisch zu confirmed
     return [
       `📅 ${vars.date}, ${vars.time} Uhr`,
       `👥 ${vars.party} ${vars.party === 1 ? "Person" : "Personen"}`,
@@ -76,20 +77,22 @@ export function buildFixedDetails(
  * Diese drei Teile werden in der Reihenfolge zusammengesetzt mit Leerzeilen.
  */
 export function composeMessage(
-  kind: "confirmed" | "cancelled" | "reminder",
+  kind: "confirmed" | "cancelled" | "reminder" | "rescheduled",
   vars: MessageVars,
   custom: WhatsAppSettings["custom_messages"] | null | undefined,
 ): { greeting: string; details: string; closing: string; full: string } {
+  // rescheduled nutzt die confirmed-Texte (gleiche Sprache, neuer Slot wird bestaetigt)
+  const effectiveKind = kind === "rescheduled" ? "confirmed" : kind;
   const greetingTpl =
-    (kind === "confirmed" && custom?.confirmed_greeting) ||
-    (kind === "cancelled" && custom?.cancelled_greeting) ||
-    (kind === "reminder" && custom?.reminder_greeting) ||
-    DEFAULT_CUSTOM_MESSAGES[`${kind}_greeting` as const];
+    (effectiveKind === "confirmed" && custom?.confirmed_greeting) ||
+    (effectiveKind === "cancelled" && custom?.cancelled_greeting) ||
+    (effectiveKind === "reminder" && custom?.reminder_greeting) ||
+    DEFAULT_CUSTOM_MESSAGES[`${effectiveKind}_greeting` as const];
   const closingTpl =
-    (kind === "confirmed" && custom?.confirmed_closing) ||
-    (kind === "cancelled" && custom?.cancelled_closing) ||
-    (kind === "reminder" && custom?.reminder_closing) ||
-    DEFAULT_CUSTOM_MESSAGES[`${kind}_closing` as const];
+    (effectiveKind === "confirmed" && custom?.confirmed_closing) ||
+    (effectiveKind === "cancelled" && custom?.cancelled_closing) ||
+    (effectiveKind === "reminder" && custom?.reminder_closing) ||
+    DEFAULT_CUSTOM_MESSAGES[`${effectiveKind}_closing` as const];
 
   const greeting = substituteVars(greetingTpl, vars);
   const details = buildFixedDetails(kind, vars);

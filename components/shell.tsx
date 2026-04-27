@@ -26,7 +26,7 @@ export function Sidebar({
   displayName: string;
   role: string;
   restaurantName: string;
-  badges?: Partial<Record<string, { n: number; tone?: "accent" | "neutral" }>>;
+  badges?: Partial<Record<string, { n: number; tone?: "accent" | "neutral" | "danger" }>>;
   restaurantId: string;
   /** Tenant-Logo aus settings.branding.logo_url. Wenn null/leer, wird das Default-Asset gezeigt. */
   logoUrl?: string | null;
@@ -45,12 +45,25 @@ export function Sidebar({
     filter: (q) => q.gte("started_at", new Date(Date.now() - 24 * 3600_000).toISOString()),
     additionalFilterString: "last-24h",
   });
+  // Voice-Errors letzte 24h — wenn welche da sind, faerben wir das Voice-
+  // Badge ROT damit der Restaurant-Inhaber das sofort im Sidebar sieht und
+  // nicht erst auf /voice navigieren muss.
+  const voiceErrorsRecent = useRealtimeCount("voice_events", restaurantId, 0, {
+    filter: (q) => q
+      .gte("created_at", new Date(Date.now() - 24 * 3600_000).toISOString())
+      .in("kind", ["error", "warning"]),
+    additionalFilterString: "voice-errors-24h",
+  });
 
   const liveBadges: typeof badges = {
     ...badges,
     // Warn-Tone (orange) fuer Angefragt — signalisiert dringendes Handeln
     reservations: { n: pendingApprovals, tone: pendingApprovals > 0 ? "accent" : badges?.reservations?.tone },
-    voice: { n: voiceCallsToday, tone: badges?.voice?.tone ?? "accent" },
+    // Voice: Anzahl Calls heute, ROT wenn Errors/Warnings vorhanden
+    voice: {
+      n: voiceCallsToday,
+      tone: voiceErrorsRecent > 0 ? "danger" : (badges?.voice?.tone ?? "accent"),
+    },
   };
 
   async function logout() {
@@ -178,19 +191,31 @@ export function Sidebar({
                           position: "absolute", top: 4, right: 6,
                           minWidth: 14, height: 14, padding: "0 4px", borderRadius: 7,
                           fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center",
-                          background: badge.tone === "accent" ? "var(--hi-accent)" : "var(--hi-line-strong)",
-                          color: badge.tone === "accent" ? "var(--hi-on-accent)" : "var(--hi-ink)",
+                          background:
+                            badge.tone === "danger" ? "oklch(0.62 0.22 25)" :
+                            badge.tone === "accent" ? "var(--hi-accent)" :
+                            "var(--hi-line-strong)",
+                          color:
+                            badge.tone === "danger" ? "#ffffff" :
+                            badge.tone === "accent" ? "var(--hi-on-accent)" :
+                            "var(--hi-ink)",
                         }
                       : {
                           fontSize: 10, fontWeight: 600,
                           padding: "1px 6px", borderRadius: 9,
                           background:
-                            badge.tone === "accent"
+                            badge.tone === "danger"
+                              ? "color-mix(in oklch, oklch(0.62 0.22 25) 22%, transparent)"
+                              : badge.tone === "accent"
                               ? "color-mix(in oklch, var(--hi-accent) 18%, transparent)"
                               : "rgba(255,255,255,0.07)",
-                          color: badge.tone === "accent" ? "var(--hi-accent)" : "var(--hi-muted-strong)",
+                          color:
+                            badge.tone === "danger" ? "oklch(0.7 0.22 25)" :
+                            badge.tone === "accent" ? "var(--hi-accent)" :
+                            "var(--hi-muted-strong)",
                         }
                   }
+                  title={badge.tone === "danger" ? "Voice-KI hat Errors/Warnings — bitte prüfen" : undefined}
                 >
                   {badge.n}
                 </span>

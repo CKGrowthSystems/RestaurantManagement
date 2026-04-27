@@ -28,7 +28,7 @@ import { sendGhlWebhook, parseFirstName, type GhlWebhookPayload } from "@/lib/gh
 import { composeMessage, type MessageVars } from "@/lib/message-vars";
 import { renderGuestEmail } from "@/lib/guest-email-template";
 
-export type NotificationKind = "confirmed" | "approval_required" | "cancelled";
+export type NotificationKind = "confirmed" | "approval_required" | "cancelled" | "rescheduled";
 
 type SettingsRow = {
   notify: {
@@ -110,6 +110,11 @@ async function notify(input: {
   const r = reservation as ResRow | null;
   if (!r) return;
 
+  // Walk-In-Buchungen haben keinen Gast-Kontakt — kein Notification-Versand.
+  // Restaurant hat eh keine Email/Phone vom Walk-In bekommen, also gibt's
+  // nichts wo wir hinmailen koennen. Frueher-Return spart einen DB-Roundtrip.
+  if (r.source === "Walk-In") return;
+
   // Email-Toggles checken — wenn aus, wird nur WhatsApp evaluiert.
   const notifyCfg = s.notify ?? null;
   const recipientEmailRaw = notifyCfg?.email?.trim() ?? null;
@@ -165,10 +170,22 @@ async function notify(input: {
     approval_reason: r.approval_reason,
   };
 
-  const tpl =
-    kind === "confirmed" ? reservationConfirmedTemplate(lite, ctx) :
-    kind === "approval_required" ? approvalRequiredTemplate(lite, ctx) :
-    cancelledTemplate(lite, ctx);
+  // Rescheduled wird als Confirmation-Mail mit neuem Subject behandelt —
+  // Inhalt ist quasi identisch (neuer Slot bestaetigt), nur Subject + Header
+  // sagen "Termin verschoben" statt "Reservierung bestaetigt".
+  const tpl = (() => {
+    if (kind === "approval_required") return approvalRequiredTemplate(lite, ctx);
+    if (kind === "cancelled") return cancelledTemplate(lite, ctx);
+    if (kind === "rescheduled") {
+      const base = reservationConfirmedTemplate(lite, ctx);
+      return {
+        subject: base.subject.replace(/^Neue Reservierung/, "Termin verschoben"),
+        html: base.html.replace(/Reservierung bestätigt/g, "Termin verschoben"),
+        text: base.text.replace(/Reservierung bestätigt/g, "Termin verschoben"),
+      };
+    }
+    return reservationConfirmedTemplate(lite, ctx);
+  })();
 
   // 1) Team-Mail (Restaurant-Email)
   if (recipientEmail) {
@@ -185,9 +202,8 @@ async function notify(input: {
   }
 
   // 2) Guest-WhatsApp (an die Telefonnummer des Gasts via Tenant-eigener Nummer)
-  // Nur fuer confirmed + cancelled (approval_required ist team-intern, nicht
-  // an den Gast — der weiss noch gar nicht ob seine Reservierung kommt).
-  if (kind === "confirmed" || kind === "cancelled") {
+  // Nur fuer confirmed/cancelled/rescheduled — approval_required ist team-intern.
+  if (kind === "confirmed" || kind === "cancelled" || kind === "rescheduled") {
     await maybeSendGuestWhatsApp({
       restaurantId,
       kind,
@@ -211,7 +227,7 @@ async function notify(input: {
 
 async function maybeSendGuestEmail(input: {
   restaurantId: string;
-  kind: "confirmed" | "cancelled";
+  kind: "confirmed" | "cancelled" | "rescheduled";
   reservation: ResRow;
   restaurantName: string;
   brandingPrimary: string | null;
@@ -228,7 +244,8 @@ async function maybeSendGuestEmail(input: {
     .maybeSingle();
   const ge = (settings as any)?.guest_email as any;
   if (!ge?.enabled) return;
-  if (kind === "confirmed" && ge.send_on_confirmed === false) return;
+  // rescheduled folgt confirmed-Toggle (re-confirmation)
+  if ((kind === "confirmed" || kind === "rescheduled") && ge.send_on_confirmed === false) return;
   if (kind === "cancelled" && ge.send_on_cancelled === false) return;
 
   const startsAtDate = new Date(reservation.starts_at);
@@ -273,7 +290,7 @@ async function maybeSendGuestEmail(input: {
  */
 async function maybeSendGuestWhatsApp(input: {
   restaurantId: string;
-  kind: "confirmed" | "cancelled";
+  kind: "confirmed" | "cancelled" | "rescheduled";
   reservation: ResRow;
   restaurantName: string;
 }): Promise<void> {
@@ -300,7 +317,7 @@ async function maybeSendGuestWhatsApp(input: {
 
   if (provider === "ghl") {
     if (!wa.ghl_webhook_url) return;
-    if (kind === "confirmed" && wa.send_on_confirmed === false) return;
+    if ((kind === "confirmed" || kind === "rescheduled") && wa.send_on_confirmed === false) return;
     if (kind === "cancelled" && wa.send_on_cancelled === false) return;
     await sendViaGhl({
       webhookUrl: wa.ghl_webhook_url,
@@ -315,7 +332,7 @@ async function maybeSendGuestWhatsApp(input: {
   // Meta-direct
   const creds = await getWhatsAppCredentials(restaurantId);
   if (!creds) return;
-  if (kind === "confirmed" && !creds.send_on_confirmed) return;
+  if ((kind === "confirmed" || kind === "rescheduled") && !creds.send_on_confirmed) return;
   if (kind === "cancelled" && !creds.send_on_cancelled) return;
 
   const guestData = {
@@ -326,10 +343,12 @@ async function maybeSendGuestWhatsApp(input: {
   };
   const restaurant = { name: restaurantName };
 
-  const templateName = kind === "confirmed"
+  // rescheduled nutzt das confirmation-Template (re-Bestaetigung)
+  const useConfirmation = kind === "confirmed" || kind === "rescheduled";
+  const templateName = useConfirmation
     ? creds.templates.confirmation
     : creds.templates.cancellation;
-  const params = kind === "confirmed"
+  const params = useConfirmation
     ? confirmationParams(guestData, restaurant)
     : cancellationParams(guestData, restaurant);
 
@@ -351,7 +370,7 @@ async function maybeSendGuestWhatsApp(input: {
  */
 async function sendViaGhl(input: {
   webhookUrl: string;
-  kind: "confirmed" | "cancelled";
+  kind: "confirmed" | "cancelled" | "rescheduled";
   reservation: ResRow;
   restaurantName: string;
   customMessages: any;

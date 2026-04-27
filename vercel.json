@@ -12,6 +12,10 @@
     {
       "path": "/api/admin/whatsapp-reminders",
       "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/admin/email-reminders",
+      "schedule": "45 6 * * *"
     }
   ]
 }

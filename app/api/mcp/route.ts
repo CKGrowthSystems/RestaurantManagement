@@ -420,30 +420,41 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
       requireAccessible: !!args.accessible,
     });
 
-    // 5-stellige Buchungsnummer generieren (Voice-friendly fuer Storno)
-    const code = await generateUniqueBookingCode(admin, restaurantId);
-
     // whatsapp_consent: explizit false nur wenn AI ihn auf false setzt.
     // Default = true (wer den Voice-Agent anruft, hat implizit zugestimmt).
     const whatsappConsent = args.whatsapp_consent === false ? false : true;
 
-    const { data: reservation, error } = await admin.from("reservations").insert({
-      restaurant_id: restaurantId,
-      table_id: decision.tableId,
-      guest_name: args.guest_name as string,
-      phone: (args.phone as string) ?? null,
-      email: (args.email as string) ?? null,
-      party_size: party,
-      starts_at: startsAt.toISOString(),
-      duration_min: durationMin,
-      source: "Voice-KI",
-      status: decision.status,
-      note: (args.note as string) ?? null,
-      auto_assigned: decision.autoAssigned,
-      approval_reason: decision.approvalReason,
-      code,
-      whatsapp_consent: whatsappConsent,
-    }).select().single();
+    // Insert mit Retry-on-Unique-Conflict: parallele Voice-Calls koennten
+    // zufaellig denselben 5-stelligen Code generieren — UNIQUE-Constraint
+    // (Migration 0016) faengt das ab. Bei Konflikt: neuen Code, retry.
+    let reservation: any = null;
+    let error: any = null;
+    let code: string | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      code = await generateUniqueBookingCode(admin, restaurantId);
+      const ins = await admin.from("reservations").insert({
+        restaurant_id: restaurantId,
+        table_id: decision.tableId,
+        guest_name: args.guest_name as string,
+        phone: (args.phone as string) ?? null,
+        email: (args.email as string) ?? null,
+        party_size: party,
+        starts_at: startsAt.toISOString(),
+        duration_min: durationMin,
+        source: "Voice-KI",
+        status: decision.status,
+        note: (args.note as string) ?? null,
+        auto_assigned: decision.autoAssigned,
+        approval_reason: decision.approvalReason,
+        code,
+        whatsapp_consent: whatsappConsent,
+      }).select().single();
+      reservation = ins.data;
+      error = ins.error;
+      if (!error) break;
+      // 23505 = unique_violation in Postgres. Bei anderen Errors brechen wir ab.
+      if ((error as any)?.code !== "23505") break;
+    }
 
     if (error || !reservation) {
       logVoiceEventAsync({
@@ -701,7 +712,7 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
               details: { reservation_id: target.id, code: cleanCode },
               reservationId: target.id,
             });
-            return textContent({ instruction: `ABSAGEN: Storno fehlgeschlagen (${updErr.message}).` });
+            return textContent({ instruction: `NACHFRAGEN: Storno hat technisch nicht geklappt. Sage dem Gast: "Tut mir leid, da ist gerade ein technisches Problem. Bitte versuchen Sie es in 5 Minuten nochmal — oder rufen Sie uns direkt an unter 07803 926970." Lass den Gast NICHT in der Annahme dass storniert wurde.` });
           }
           notifyAsync({ restaurantId, reservationId: target.id, kind: "cancelled" });
           const t = new Date(target.starts_at).toLocaleString("de-DE", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
@@ -824,7 +835,7 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
       .eq("id", target.id)
       .eq("restaurant_id", restaurantId);
     if (updErr) {
-      return textContent({ instruction: `ABSAGEN: Storno fehlgeschlagen (${updErr.message}). Bitte nochmal versuchen.` });
+      return textContent({ instruction: `NACHFRAGEN: Storno hat technisch nicht geklappt. Sage dem Gast: "Da ist gerade ein technisches Problem. Bitte rufen Sie uns direkt unter 07803 926970 an, dann erledige ich das persönlich für Sie." NICHT bestätigen dass storniert wurde.` });
     }
     notifyAsync({ restaurantId, reservationId: target.id, kind: "cancelled" });
 
@@ -1042,7 +1053,7 @@ async function callTool(name: string, rawArgs: unknown, restaurantId: string) {
       });
     }
 
-    notifyAsync({ restaurantId, reservationId: target.id, kind: "confirmed" });
+    notifyAsync({ restaurantId, reservationId: target.id, kind: "rescheduled" });
 
     const newTable = ((tables ?? []) as TableRow[]).find((t) => t.id === decision.tableId);
     const zoneName = newTable?.zone_id ? ((zones ?? []) as Zone[]).find((z) => z.id === newTable.zone_id)?.name ?? null : null;

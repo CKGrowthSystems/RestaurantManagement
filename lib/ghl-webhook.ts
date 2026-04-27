@@ -23,7 +23,7 @@
  * Workflow nichts mehr formatieren, nur Felder zuordnen.
  */
 
-export type GhlNotificationEvent = "confirmed" | "cancelled" | "reminder";
+export type GhlNotificationEvent = "confirmed" | "cancelled" | "reminder" | "rescheduled";
 
 export type GhlWebhookPayload = {
   event: GhlNotificationEvent;

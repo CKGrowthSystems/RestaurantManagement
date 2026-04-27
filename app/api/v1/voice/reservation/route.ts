@@ -128,11 +128,15 @@ export async function POST(request: Request) {
     requireAccessible: !!body.accessible,
   });
 
-  const code = await generateUniqueBookingCode(admin, auth.restaurantId);
-
-  const { data: reservation, error } = await admin
-    .from("reservations")
-    .insert({
+  // Retry-on-Unique-Conflict: parallele Calls koennten zufaellig denselben
+  // 5-stelligen Code generieren. UNIQUE-Constraint (Mig. 0016) catched es,
+  // wir versuchen 3x mit jeweils neuem Code.
+  let reservation: any = null;
+  let error: any = null;
+  let code: string | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    code = await generateUniqueBookingCode(admin, auth.restaurantId);
+    const ins = await admin.from("reservations").insert({
       restaurant_id: auth.restaurantId,
       table_id: decision.tableId,
       guest_name: body.guest_name,
@@ -147,8 +151,12 @@ export async function POST(request: Request) {
       auto_assigned: decision.autoAssigned,
       approval_reason: decision.approvalReason,
       code,
-    })
-    .select().single();
+    }).select().single();
+    reservation = ins.data;
+    error = ins.error;
+    if (!error) break;
+    if ((error as any)?.code !== "23505") break;
+  }
 
   if (error || !reservation) {
     const resp = { error: error?.message ?? "Could not create reservation" };
