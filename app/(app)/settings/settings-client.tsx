@@ -1749,7 +1749,69 @@ function WhatsAppTab({
       {guestEmail.enabled && (
         <GuestEmailMessagesCard guestEmail={guestEmail} setGuestEmail={setGuestEmail} />
       )}
+
+      {/* Test-Send fuer Email — Button erscheint nur wenn Email aktiv ist */}
+      {guestEmail.enabled && (
+        <EmailTestSendCard />
+      )}
     </>
+  );
+}
+
+function EmailTestSendCard() {
+  const [testTo, setTestTo] = useState("");
+  const [status, setStatus] = useState<{ kind: "idle" | "sending" | "ok" | "err"; msg?: string }>({ kind: "idle" });
+
+  async function send() {
+    if (!testTo.trim()) return;
+    setStatus({ kind: "sending" });
+    try {
+      const res = await fetch("/api/guest-email/test-send", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to: testTo.trim() }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setStatus({ kind: "ok", msg: json.note ?? `Gesendet an ${testTo.trim()}` });
+      } else {
+        setStatus({ kind: "err", msg: json.error ?? "Unbekannter Fehler" });
+      }
+    } catch (e: any) {
+      setStatus({ kind: "err", msg: e?.message ?? String(e) });
+    }
+  }
+
+  return (
+    <HiCard style={{ padding: 20 }}>
+      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 4 }}>Test-E-Mail senden</div>
+      <div style={{ fontSize: 11.5, color: "var(--hi-muted)", marginBottom: 14 }}>
+        Sendet eine Test-Bestätigungs-Mail mit deinen aktuellen Texten + Branding an die Adresse unten. Vorher in Settings speichern!
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input
+          type="email"
+          value={testTo}
+          onChange={(e) => setTestTo(e.target.value)}
+          placeholder="z.B. info@deinedomain.de"
+          className="allow-select"
+          style={{ ...textInputStyle, flex: 1 }}
+        />
+        <HiBtn kind="outline" size="md" onClick={send} disabled={status.kind === "sending"}>
+          {status.kind === "sending" ? "Sende…" : "Test senden"}
+        </HiBtn>
+      </div>
+      {status.kind === "ok" && (
+        <div style={{ marginTop: 10, fontSize: 12, color: "oklch(0.78 0.12 145)" }}>
+          ✓ {status.msg}
+        </div>
+      )}
+      {status.kind === "err" && (
+        <div style={{ marginTop: 10, fontSize: 12, color: "oklch(0.7 0.18 25)" }}>
+          ✗ {status.msg}
+        </div>
+      )}
+    </HiCard>
   );
 }
 
