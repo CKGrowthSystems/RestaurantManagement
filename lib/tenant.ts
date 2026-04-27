@@ -46,18 +46,44 @@ export const getTenantContext = cache(async (): Promise<TenantContext | null> =>
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
+  // BEWUSST OHNE onboarding_completed_at — falls Migration 0017 noch nicht
+  // eingespielt ist, wuerde das die ganze Query zum Absturz bringen und der
+  // User landet in einem Redirect-Loop. Wir holen die Spalte unten separat
+  // mit try/catch und behandeln Fehlen als „bereits onboarded".
   const { data: membership } = await supabase
     .from("memberships")
-    .select("restaurant_id, role, display_name, restaurants(name, theme, logo_url, onboarding_completed_at)")
+    .select("restaurant_id, role, display_name, restaurants(name, theme, logo_url)")
     .eq("user_id", user.id)
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
   if (!membership) return null;
 
-  const restaurant = (membership.restaurants ?? {}) as {
+  const restaurantBase = (membership.restaurants ?? {}) as {
     name: string; theme: string; logo_url: string | null;
-    onboarding_completed_at: string | null;
+  };
+
+  // Onboarding-Flag defensiv: Migration evtl. nicht eingespielt → als done
+  // behandeln. Spalte da + null → Wizard zeigen. Spalte da + Timestamp → done.
+  let onboardingCompletedAt: string | null = new Date().toISOString();
+  try {
+    const { data: rest, error } = await supabase
+      .from("restaurants")
+      .select("onboarding_completed_at")
+      .eq("id", membership.restaurant_id)
+      .maybeSingle();
+    if (!error && rest) {
+      onboardingCompletedAt = (rest as any).onboarding_completed_at ?? null;
+    }
+    // Bei error: Spalte existiert nicht → onboardingCompletedAt bleibt
+    // bei „now()" → Dashboard zeigt sich normal (keine Wizard-Umleitung).
+  } catch {
+    // Network/Lib-Error → genauso behandeln (kein Loop riskieren).
+  }
+
+  const restaurant = {
+    ...restaurantBase,
+    onboarding_completed_at: onboardingCompletedAt,
   };
 
   return {
