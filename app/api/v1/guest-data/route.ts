@@ -6,8 +6,11 @@ import { phonesMatch } from "@/lib/phone";
  * DSGVO-Endpoints fuer Gastdaten
  * ===============================
  *
- * GET    /api/v1/guest-data?phone=<n>     → Auskunftsrecht (Art. 15 DSGVO)
- * DELETE /api/v1/guest-data?phone=<n>     → Recht auf Loeschung (Art. 17 DSGVO)
+ * GET    /api/v1/guest-data?phone=<n>            → Auskunftsrecht Art. 15 (Download)
+ * GET    /api/v1/guest-data?phone=<n>&preview=1  → Preview ohne Download-Header
+ * GET    /api/v1/guest-data?email=<a>            → Suche per Email
+ * GET    /api/v1/guest-data?phone=<n>&email=<a>  → OR-Match (beide reichen)
+ * DELETE /api/v1/guest-data?phone=<n>            → Recht auf Loeschung Art. 17
  *
  * Auth: Browser-Session vom Restaurant-Team (Cookie). RLS via getTenantContext
  * stellt sicher, dass nur Daten des eigenen Tenants raus/weggehen koennen.
@@ -19,35 +22,49 @@ import { phonesMatch } from "@/lib/phone";
  *  - voice_calls: phone → null, transcript → [], raw_payload → null.
  *    Outcome/Dauer/Zeitstempel bleiben fuer Reporting.
  *
- * Match: phonesMatch() (Format-tolerant, last-9-digits).
+ * Match: phonesMatch() (Format-tolerant, last-9-digits) fuer Phone,
+ *        case-insensitive exact-match fuer Email.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function readPhoneParam(request: Request): string | null {
+type SearchTerms = {
+  phone: string | null;
+  email: string | null;
+  preview: boolean;
+};
+
+function readSearchTerms(request: Request): SearchTerms {
   const url = new URL(request.url);
-  const phone = url.searchParams.get("phone");
-  if (!phone) return null;
-  const trimmed = phone.trim();
-  return trimmed || null;
+  const phone = url.searchParams.get("phone")?.trim() || null;
+  const email = url.searchParams.get("email")?.trim().toLowerCase() || null;
+  const preview = url.searchParams.get("preview") === "1";
+  return { phone, email, preview };
+}
+
+function emailsMatch(a: string | null, b: string | null): boolean {
+  if (!a || !b) return false;
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
 export async function GET(request: Request) {
   const ctx = await getTenantContext();
   if (!ctx) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const phone = readPhoneParam(request);
-  if (!phone) return NextResponse.json({ error: "Missing ?phone= parameter" }, { status: 400 });
+  const { phone, email, preview } = readSearchTerms(request);
+  if (!phone && !email) {
+    return NextResponse.json({ error: "Missing ?phone= or ?email= parameter" }, { status: 400 });
+  }
 
   const { supabase, restaurantId } = ctx;
 
-  // Wir holen alle Reservierungen + Voice-Calls fuer diesen Tenant und
-  // filtern client-seitig via phonesMatch — Format-Toleranz ist nur in JS
-  // implementiert, nicht in SQL.
+  // Wir holen alle Reservierungen + Voice-Calls fuer diesen Tenant mit
+  // Phone ODER Email gesetzt, dann filtern wir client-seitig: phonesMatch()
+  // fuer Format-Toleranz, exact-lowercase fuer Email.
   const [{ data: reservations }, { data: voiceCalls }] = await Promise.all([
     supabase.from("reservations").select("*")
       .eq("restaurant_id", restaurantId)
-      .not("phone", "is", null)
+      .or("phone.not.is.null,email.not.is.null")
       .order("starts_at", { ascending: false }),
     supabase.from("voice_calls").select("*")
       .eq("restaurant_id", restaurantId)
@@ -55,23 +72,36 @@ export async function GET(request: Request) {
       .order("started_at", { ascending: false }),
   ]);
 
-  const matchedReservations = ((reservations ?? []) as { phone: string | null }[])
-    .filter((r) => phonesMatch(r.phone, phone));
+  const matchedReservations = ((reservations ?? []) as { phone: string | null; email: string | null }[])
+    .filter((r) => (phone && phonesMatch(r.phone, phone)) || (email && emailsMatch(r.email, email)));
   const matchedCalls = ((voiceCalls ?? []) as { phone: string | null }[])
-    .filter((c) => phonesMatch(c.phone, phone));
+    .filter((c) => phone && phonesMatch(c.phone, phone));
 
-  return NextResponse.json({
+  const body = {
     phone,
+    email,
     restaurant_id: restaurantId,
     exported_at: new Date().toISOString(),
     reservations_count: matchedReservations.length,
     voice_calls_count: matchedCalls.length,
-    reservations: matchedReservations,
-    voice_calls: matchedCalls,
-  }, {
+    reservations: preview ? matchedReservations.slice(0, 5) : matchedReservations,
+    voice_calls: preview ? matchedCalls.slice(0, 5) : matchedCalls,
+    preview,
+  };
+
+  // Preview: kein Download-Header, das UI zeigt nur Counts + Sample
+  if (preview) {
+    return NextResponse.json(body, {
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+
+  // Vollexport: als Download-File
+  const slug = (phone ?? email ?? "guest").replace(/[^a-z0-9]/gi, "");
+  return NextResponse.json(body, {
     headers: {
       "Content-Type": "application/json",
-      "Content-Disposition": `attachment; filename="dsgvo-export-${phone.replace(/\D/g, "")}-${new Date().toISOString().slice(0, 10)}.json"`,
+      "Content-Disposition": `attachment; filename="dsgvo-export-${slug}-${new Date().toISOString().slice(0, 10)}.json"`,
       "Cache-Control": "no-store",
     },
   });
@@ -81,27 +111,28 @@ export async function DELETE(request: Request) {
   const ctx = await getTenantContext();
   if (!ctx) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const phone = readPhoneParam(request);
-  if (!phone) return NextResponse.json({ error: "Missing ?phone= parameter" }, { status: 400 });
+  const { phone, email } = readSearchTerms(request);
+  if (!phone && !email) {
+    return NextResponse.json({ error: "Missing ?phone= or ?email= parameter" }, { status: 400 });
+  }
 
   const { supabase, restaurantId } = ctx;
 
-  // Erstmal IDs finden (mit JS-Match) — direkte SQL-Updates per phone-Wert
-  // wuerden Format-Varianten verfehlen.
+  // IDs finden — alle Reservierungen mit phone ODER email die matchen.
   const [{ data: reservations }, { data: voiceCalls }] = await Promise.all([
-    supabase.from("reservations").select("id, phone")
+    supabase.from("reservations").select("id, phone, email")
       .eq("restaurant_id", restaurantId)
-      .not("phone", "is", null),
+      .or("phone.not.is.null,email.not.is.null"),
     supabase.from("voice_calls").select("id, phone")
       .eq("restaurant_id", restaurantId)
       .not("phone", "is", null),
   ]);
 
-  const reservationIds = ((reservations ?? []) as { id: string; phone: string | null }[])
-    .filter((r) => phonesMatch(r.phone, phone))
+  const reservationIds = ((reservations ?? []) as { id: string; phone: string | null; email: string | null }[])
+    .filter((r) => (phone && phonesMatch(r.phone, phone)) || (email && emailsMatch(r.email, email)))
     .map((r) => r.id);
   const voiceCallIds = ((voiceCalls ?? []) as { id: string; phone: string | null }[])
-    .filter((c) => phonesMatch(c.phone, phone))
+    .filter((c) => phone && phonesMatch(c.phone, phone))
     .map((c) => c.id);
 
   if (reservationIds.length === 0 && voiceCallIds.length === 0) {
@@ -145,6 +176,7 @@ export async function DELETE(request: Request) {
   return NextResponse.json({
     ok: true,
     phone,
+    email,
     anonymized_reservations: reservationIds.length,
     anonymized_voice_calls: voiceCallIds.length,
     deleted_at: new Date().toISOString(),

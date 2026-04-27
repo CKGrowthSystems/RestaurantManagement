@@ -70,6 +70,7 @@ const TABS = [
   { id: "notify", label: "Benachrichtigungen" },
   { id: "whatsapp", label: "Gast-Benachrichtigungen" },
   { id: "theme", label: "Branding / Whitelabel" },
+  { id: "privacy", label: "Datenschutz / DSGVO" },
 ] as const;
 
 export function SettingsClient({ initial }: { initial: Settings }) {
@@ -249,6 +250,10 @@ export function SettingsClient({ initial }: { initial: Settings }) {
 
           {tab === "theme" && (
             <ThemeTab branding={branding} setBranding={setBranding} />
+          )}
+
+          {tab === "privacy" && (
+            <PrivacyTab />
           )}
 
           {tab !== "profile" && (
@@ -2003,6 +2008,302 @@ function ToggleRow({ label, desc, on, onChange }: { label: string; desc?: string
       </div>
       <Toggle on={on} onChange={onChange} />
     </div>
+  );
+}
+
+// ============================================================================
+// PrivacyTab — DSGVO Datenexport + Anonymisierung
+// ============================================================================
+
+type PrivacyPreview = {
+  reservations_count: number;
+  voice_calls_count: number;
+  reservations: Array<{
+    id: string;
+    guest_name: string;
+    party_size: number;
+    starts_at: string;
+    phone: string | null;
+    email: string | null;
+    status: string;
+    code: string | null;
+  }>;
+  voice_calls: Array<{
+    id: string;
+    started_at: string;
+    duration_sec: number;
+    outcome: string;
+  }>;
+};
+
+function PrivacyTab() {
+  const [searchPhone, setSearchPhone] = useState("");
+  const [searchEmail, setSearchEmail] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<PrivacyPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<{
+    anonymized_reservations: number;
+    anonymized_voice_calls: number;
+  } | null>(null);
+
+  function buildQuery(): string | null {
+    const params = new URLSearchParams();
+    if (searchPhone.trim()) params.set("phone", searchPhone.trim());
+    if (searchEmail.trim()) params.set("email", searchEmail.trim());
+    if (params.toString().length === 0) return null;
+    return params.toString();
+  }
+
+  async function search() {
+    setError(null);
+    setResult(null);
+    setDeleteResult(null);
+    const qs = buildQuery();
+    if (!qs) {
+      setError("Bitte Telefonnummer oder E-Mail eingeben.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/v1/guest-data?${qs}&preview=1`);
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error ?? "Fehler bei der Suche");
+      } else {
+        setResult(json);
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Netzwerk-Fehler");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function exportData() {
+    const qs = buildQuery();
+    if (!qs) return;
+    // Direkt-Download via window.location (Browser handelt Content-Disposition)
+    window.location.href = `/api/v1/guest-data?${qs}`;
+  }
+
+  async function anonymize() {
+    setError(null);
+    const qs = buildQuery();
+    if (!qs) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/v1/guest-data?${qs}`, { method: "DELETE" });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        setError(json.error ?? json.errors?.join(", ") ?? "Loeschung fehlgeschlagen");
+      } else {
+        setDeleteResult({
+          anonymized_reservations: json.anonymized_reservations ?? 0,
+          anonymized_voice_calls: json.anonymized_voice_calls ?? 0,
+        });
+        setResult(null);  // Preview ist nach Loeschung obsolet
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Netzwerk-Fehler");
+    } finally {
+      setLoading(false);
+      setConfirmDelete(false);
+    }
+  }
+
+  return (
+    <>
+      <Header
+        title="Datenschutz / DSGVO"
+        sub="Auskunftsrecht (Art. 15) und Recht auf Löschung (Art. 17). Suche einen Gast per Telefon oder E-Mail, exportiere alle gespeicherten Daten als JSON-Datei oder anonymisiere ihn dauerhaft. Reservierungs-Statistiken bleiben dabei erhalten — nur die personenbezogenen Felder werden geleert."
+      />
+
+      <HiCard style={{ padding: 20, marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 12 }}>
+          Gast suchen
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div>
+            <label style={{ display: "block", fontSize: 11, color: "var(--hi-muted-strong)", marginBottom: 4, fontWeight: 500 }}>
+              Telefonnummer
+            </label>
+            <input
+              type="tel"
+              value={searchPhone}
+              onChange={(e) => setSearchPhone(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") search(); }}
+              placeholder="z.B. +49 151 12345678"
+              className="allow-select"
+              style={textInputStyle}
+            />
+          </div>
+          <div>
+            <label style={{ display: "block", fontSize: 11, color: "var(--hi-muted-strong)", marginBottom: 4, fontWeight: 500 }}>
+              E-Mail
+            </label>
+            <input
+              type="email"
+              value={searchEmail}
+              onChange={(e) => setSearchEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") search(); }}
+              placeholder="z.B. mueller@example.com"
+              className="allow-select"
+              style={textInputStyle}
+            />
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--hi-muted)", marginBottom: 12 }}>
+          Tipp: Telefon-Format ist egal (mit/ohne Vorwahl, Leerzeichen). Bei Email-Suche wird Groß-/Kleinschreibung ignoriert.
+        </div>
+        <HiBtn kind="primary" size="md" icon="search" onClick={search} disabled={loading}>
+          {loading ? "Suche…" : "Suchen"}
+        </HiBtn>
+      </HiCard>
+
+      {error && (
+        <HiCard style={{ padding: 16, marginBottom: 16, background: "color-mix(in oklch, oklch(0.62 0.22 25) 8%, var(--hi-surface))" }}>
+          <div style={{ fontSize: 12.5, color: "oklch(0.7 0.22 25)", fontWeight: 500 }}>
+            ✗ {error}
+          </div>
+        </HiCard>
+      )}
+
+      {deleteResult && (
+        <HiCard style={{ padding: 16, marginBottom: 16, background: "color-mix(in oklch, oklch(0.78 0.12 145) 10%, var(--hi-surface))" }}>
+          <div style={{ fontSize: 12.5, color: "oklch(0.78 0.12 145)", fontWeight: 500, marginBottom: 4 }}>
+            ✓ Daten erfolgreich anonymisiert
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--hi-muted-strong)" }}>
+            {deleteResult.anonymized_reservations} Reservierung{deleteResult.anonymized_reservations === 1 ? "" : "en"} und {deleteResult.anonymized_voice_calls} Voice-Call{deleteResult.anonymized_voice_calls === 1 ? "" : "s"} betroffen. Statistiken bleiben erhalten, alle personenbezogenen Daten wurden geleert.
+          </div>
+        </HiCard>
+      )}
+
+      {result && (
+        <>
+          <HiCard style={{ padding: 20, marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)" }}>
+                Gefundene Daten
+              </div>
+              <div className="mono" style={{ fontSize: 11, color: "var(--hi-muted)" }}>
+                Vorschau (Top 5)
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+              <div style={{ padding: "10px 14px", background: "var(--hi-surface-raised)", borderRadius: 8, border: "1px solid var(--hi-line)" }}>
+                <div style={{ fontSize: 10.5, color: "var(--hi-muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>
+                  Reservierungen
+                </div>
+                <div className="mono" style={{ fontSize: 22, fontWeight: 600, color: "var(--hi-ink)", marginTop: 2 }}>
+                  {result.reservations_count}
+                </div>
+              </div>
+              <div style={{ padding: "10px 14px", background: "var(--hi-surface-raised)", borderRadius: 8, border: "1px solid var(--hi-line)" }}>
+                <div style={{ fontSize: 10.5, color: "var(--hi-muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>
+                  Voice-Calls
+                </div>
+                <div className="mono" style={{ fontSize: 22, fontWeight: 600, color: "var(--hi-ink)", marginTop: 2 }}>
+                  {result.voice_calls_count}
+                </div>
+              </div>
+            </div>
+
+            {result.reservations.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 11.5, color: "var(--hi-muted-strong)", fontWeight: 500, marginBottom: 6 }}>
+                  Reservierungen (Sample)
+                </div>
+                {result.reservations.map((r) => (
+                  <div key={r.id} style={{
+                    padding: "8px 10px", marginBottom: 4,
+                    background: "var(--hi-surface)", border: "1px solid var(--hi-line)",
+                    borderRadius: 6, fontSize: 12, color: "var(--hi-ink)",
+                  }}>
+                    <strong>{r.guest_name}</strong> · {r.party_size} P. · {new Date(r.starts_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" })}
+                    <span className="mono" style={{ marginLeft: 6, fontSize: 10.5, color: "var(--hi-muted)" }}>
+                      {r.code ?? "—"} · {r.status}
+                    </span>
+                  </div>
+                ))}
+                {result.reservations_count > result.reservations.length && (
+                  <div style={{ fontSize: 11, color: "var(--hi-muted)", fontStyle: "italic", marginTop: 4 }}>
+                    … und {result.reservations_count - result.reservations.length} weitere (im JSON-Export enthalten)
+                  </div>
+                )}
+              </div>
+            )}
+
+            {result.voice_calls.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 11.5, color: "var(--hi-muted-strong)", fontWeight: 500, marginBottom: 6 }}>
+                  Voice-Calls (Sample)
+                </div>
+                {result.voice_calls.map((c) => (
+                  <div key={c.id} style={{
+                    padding: "8px 10px", marginBottom: 4,
+                    background: "var(--hi-surface)", border: "1px solid var(--hi-line)",
+                    borderRadius: 6, fontSize: 12, color: "var(--hi-ink)",
+                  }}>
+                    {new Date(c.started_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" })}
+                    <span className="mono" style={{ marginLeft: 6, fontSize: 10.5, color: "var(--hi-muted)" }}>
+                      {c.duration_sec}s · {c.outcome}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {result.reservations_count === 0 && result.voice_calls_count === 0 && (
+              <div style={{ fontSize: 12, color: "var(--hi-muted)", fontStyle: "italic" }}>
+                Keine Daten zu diesem Suchbegriff gefunden.
+              </div>
+            )}
+          </HiCard>
+
+          {(result.reservations_count > 0 || result.voice_calls_count > 0) && (
+            <HiCard style={{ padding: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "var(--hi-ink)", marginBottom: 12 }}>
+                DSGVO-Aktionen
+              </div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                <HiBtn kind="outline" size="md" icon="export" onClick={exportData}>
+                  Vollständig als JSON exportieren
+                </HiBtn>
+                {!confirmDelete ? (
+                  <HiBtn
+                    kind="ghost"
+                    size="md"
+                    icon="trash"
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    Daten anonymisieren…
+                  </HiBtn>
+                ) : (
+                  <>
+                    <HiBtn kind="primary" size="md" onClick={anonymize} disabled={loading}>
+                      {loading ? "Lösche…" : "Wirklich anonymisieren"}
+                    </HiBtn>
+                    <HiBtn kind="ghost" size="md" onClick={() => setConfirmDelete(false)}>
+                      Abbrechen
+                    </HiBtn>
+                  </>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--hi-muted)", lineHeight: 1.5 }}>
+                <strong style={{ color: "var(--hi-muted-strong)" }}>Was passiert beim Anonymisieren:</strong><br />
+                • Reservierungen: Name → „[gelöscht]", Telefon/E-Mail/Notizen → leer. Reservierung selbst bleibt für Statistik.<br />
+                • Voice-Calls: Telefon → leer, Transcript + Raw-Payload → geleert. Outcome/Dauer bleiben.<br />
+                • <strong style={{ color: "var(--hi-muted-strong)" }}>Aktion ist nicht rückgängig machbar.</strong>
+              </div>
+            </HiCard>
+          )}
+        </>
+      )}
+    </>
   );
 }
 
